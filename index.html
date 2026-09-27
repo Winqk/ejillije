@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Где дешевле — цены Кишинёва</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap">
+<style>
+:root{
+  --bg:#f3f4ef;--card:#ffffff;--text:#16201b;--hint:#5a655f;--line:#e3e6df;--soft:#eef0ea;
+  --chip:#eef1ea;--chip-text:#2f3a34;--accent:#0b7a63;--accent-text:#0b7a63;--on-accent:#ffffff;
+  --sale-bg:#fde9e2;--sale-text:#a3321a;--chart:#12a082;--low:#c2410c;
+  --dark:#16201b;--dark-2:#243029;--dark-hint:#c9d2cc;--good:#2b7a5f;
+  --display:Unbounded,'Segoe UI',sans-serif;--body:Onest,'Segoe UI',system-ui,sans-serif;
+}
+[data-scheme=dark]{
+  --bg:#0f1512;--card:#18211d;--text:#e8eee9;--hint:#9aa8a0;--line:#27332d;--soft:#1f2924;
+  --chip:#222d27;--chip-text:#d5ddd8;--accent:#0e8a6f;--accent-text:#4cc9a4;
+  --sale-bg:#3a1f18;--sale-text:#ff9f86;--chart:#3cc19b;--low:#ff8a5c;
+  --dark:#0b3a2f;--dark-2:#114a3c;--dark-hint:#bdd8cd;--good:#1d9c75;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);-webkit-text-size-adjust:100%}
+button,input{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{max-width:560px;margin:0 auto;padding:18px 16px 110px;display:flex;flex-direction:column;gap:12px}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:0 4px}
+.eyebrow{font-size:13px;color:var(--hint);font-weight:500}
+h1{margin:0;font-family:var(--display);font-weight:600;font-size:24px;letter-spacing:-.3px;line-height:1.2}
+.updated{font-size:12px;color:var(--hint);text-align:right;line-height:1.35}
+.updated.old{color:var(--sale-text);font-weight:600}
+.searchrow{display:flex;gap:8px}
+.field{flex:1;display:flex;align-items:center;gap:10px;height:50px;padding:0 14px;background:var(--card);border:1.5px solid var(--accent);border-radius:14px;min-width:0}
+.field input{flex:1;border:0;outline:none;background:transparent;font-size:17px;min-width:0}
+.field svg{flex-shrink:0;color:var(--hint)}
+.iconbtn{width:50px;height:50px;border:0;border-radius:14px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chips span{font-size:13px;color:var(--hint)}
+.chip{height:34px;padding:0 13px;border:1px solid var(--line);border-radius:17px;background:var(--card);font-size:14px;cursor:pointer}
+.sechead{display:flex;justify-content:space-between;align-items:baseline;padding:4px 4px 0;gap:8px}
+.sechead b{font-weight:600;font-size:15px}
+.sechead small{font-size:13px;color:var(--hint)}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--card);border-radius:16px;min-height:76px;width:100%;border:0;text-align:left;cursor:pointer}
+.rank{width:28px;height:28px;border-radius:14px;background:var(--chip);color:var(--chip-text);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.best{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--accent-text)}
+.name{font-size:15px;font-weight:500;line-height:1.25;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.meta{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--hint);flex-wrap:wrap}
+.store{padding:2px 8px;border-radius:8px;background:var(--chip);color:var(--chip-text);font-weight:600}
+.right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.price{font-family:var(--display);font-weight:600;font-size:17px;white-space:nowrap}
+.price small{font-family:var(--body);font-size:12px;font-weight:500;color:var(--hint)}
+.sale{font-size:12px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--sale-bg);color:var(--sale-text);white-space:nowrap}
+.card{background:var(--card);border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.empty{padding:28px 16px;text-align:center;color:var(--hint);font-size:15px;line-height:1.5}
+.empty b{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
+.btn{height:50px;border:0;border-radius:14px;background:var(--accent);color:var(--on-accent);font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;padding:0 18px}
+.btn.ghost{background:var(--chip);color:var(--chip-text)}
+.more{height:44px;border:0;border-radius:12px;background:var(--chip);color:var(--chip-text);font-weight:600;cursor:pointer}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:0 8px env(safe-area-inset-bottom);z-index:5}
+nav.tabs[hidden]{display:none}
+nav.tabs button{height:64px;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:500;color:var(--hint);cursor:pointer}
+nav.tabs button[aria-current=page]{color:var(--accent-text);font-weight:600}
+.back{display:flex;align-items:center;gap:4px;height:44px;border:0;background:transparent;color:var(--accent-text);font-size:15px;font-weight:500;cursor:pointer;padding:0;align-self:flex-start}
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{padding:3px 10px;border-radius:8px;background:var(--card);font-size:13px;color:var(--hint)}
+.pill.strong{font-weight:600;color:var(--chip-text)}
+.bigprice{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.bigprice .v{font-family:var(--display);font-weight:700;font-size:30px}
+.bigprice .v small{font-family:var(--body);font-size:15px;font-weight:500;color:var(--hint)}
+.seg{display:flex;gap:2px;padding:3px;background:var(--chip);border-radius:12px}
+.seg button{height:32px;padding:0 11px;border:0;border-radius:9px;background:transparent;font-size:13px;color:var(--hint);cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--card);color:var(--text);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stats div{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:12px;background:var(--soft)}
+.stats span{font-size:12px;color:var(--hint)}
+.stats b{font-size:15px}
+.note-good{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent-text)}
+.row{display:flex;align-items:center;gap:10px;min-height:48px;border-top:1px solid var(--soft);padding:4px 0;width:100%;background:transparent;border-left:0;border-right:0;border-bottom:0;text-align:left;cursor:pointer}
+.actionbar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:12px 16px calc(14px + env(safe-area-inset-bottom));display:flex;gap:10px;z-index:5}
+.actionbar .btn{flex:1}
+.actionbar .sq{width:52px;height:52px;border-radius:14px;border:0;background:var(--chip);color:var(--chip-text);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.bitem{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 4px 0 12px;border-bottom:1px solid var(--soft)}
+.bitem .dot{width:8px;height:8px;border-radius:4px;background:var(--accent);flex-shrink:0}
+.bitem div{flex:1;font-size:15px;font-weight:500}
+.x{width:44px;height:44px;border:0;background:transparent;color:var(--hint);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.addrow{display:flex;align-items:center;gap:8px;padding:8px 4px 0 12px}
+.addrow input{flex:1;min-width:0;height:40px;border:0;outline:none;background:transparent;font-size:15px}
+.addrow button{width:40px;height:40px;border-radius:12px;border:0;background:var(--chip);color:var(--accent-text);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.srow{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--card);border-radius:16px}
+.place{width:30px;height:30px;border-radius:15px;background:var(--chip);color:var(--chip-text);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.place.first{background:var(--accent);color:var(--on-accent)}
+.cells{display:flex;gap:3px}
+.cells i{width:14px;height:6px;border-radius:3px;background:var(--line)}
+.cells i.on{background:var(--accent)}
+.mix{background:var(--dark);color:#fff;border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.mix .h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.mix .lbl{font-size:13px;color:var(--dark-hint)}
+.mix .sum{font-family:var(--display);font-weight:600;font-size:26px}
+.mix .sum small{font-family:var(--body);font-size:14px;font-weight:500}
+.mix .save{padding:6px 10px;border-radius:10px;background:var(--good);font-size:13px;font-weight:600;white-space:nowrap}
+.mix .groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.mix .g{background:var(--dark-2);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.mix .g b{font-size:13px}
+.mix .g div{font-size:12.5px;color:var(--dark-hint);line-height:1.4}
+.mix .foot{font-size:12px;color:var(--dark-hint)}
+.skeleton{height:76px;border-radius:16px;background:var(--card);opacity:.6}
+</style>
+</head>
+<body>
+<div id="app"><div class="wrap"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>
+<nav class="tabs" id="tabs" aria-label="Разделы" hidden></nav>
+
+<script>
+"use strict";
+// ================= Telegram =================
+var tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
+if (tg) {
+  try { tg.ready(); tg.expand(); } catch (e) {}
+}
+function applyScheme() {
+  var dark = tg ? tg.colorScheme === "dark" : (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.setAttribute("data-scheme", dark ? "dark" : "light");
+  if (tg) {
+    var bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); } catch (e) {}
+  }
+}
+applyScheme();
+if (tg) try { tg.onEvent("themeChanged", applyScheme); } catch (e) {}
+
+var store = {
+  get: function (key, cb) {
+    if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9")) {
+      tg.CloudStorage.getItem(key, function (err, val) { cb(err ? localGet(key) : (val || localGet(key))); });
+    } else cb(localGet(key));
+  },
+  set: function (key, val) {
+    try { localStorage.setItem(key, val); } catch (e) {}
+    if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9")) {
+      try { tg.CloudStorage.setItem(key, val); } catch (e) {}
+    }
+  }
+};
+function localGet(key) { try { return localStorage.getItem(key) || ""; } catch (e) { return ""; } }
+
+// ================= данные =================
+var D = null, PRODUCTS = [], BY_ID = {}, INDEX = [], STORE_COUNT = 0;
+var TODAY = Date.now() / 1000;
+
+function loadData() {
+  return fetch("data.json", { cache: "no-cache" }).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function (d) {
+    D = d;
+    INDEX = d.synonyms || [];
+    PRODUCTS = d.products.map(function (a) {
+      var p = { id: a[0], store: a[1], storeName: d.stores[a[1]] || a[1], name: a[2], price: a[3],
+                old: a[4], unit: a[5], qu: a[6], url: a[7], manual: a[8], norm: " " + normalize(a[2]) };
+      BY_ID[p.id] = p;
+      return p;
+    });
+    var seen = {};
+    PRODUCTS.forEach(function (p) { seen[p.store] = 1; });
+    STORE_COUNT = Object.keys(seen).length;
+  });
+}
+
+// ================= поиск (как в боте: textutils.py + synonyms.py) =================
+var DIAC = { "ă": "a", "â": "a", "î": "i", "ș": "s", "ş": "s", "ț": "t", "ţ": "t" };
+function normalize(text) {
+  text = String(text).toLowerCase().replace(/ё/g, "е").replace(/[ăâîșşțţ]/g, function (c) { return DIAC[c]; }).replace(/,/g, ".");
+  text = text.replace(/[^0-9a-zа-я%.]+/g, " ");
+  return text.split(" ").map(function (t) { return t.replace(/^\.+|\.+$/g, ""); }).filter(Boolean).join(" ");
+}
+function queryStems(q) {
+  var out = [];
+  normalize(q).split(" ").forEach(function (t) {
+    if (t.length < 2) return;
+    if (/\d/.test(t)) out.push(t);
+    else if (t.length >= 8) out.push(t.slice(0, -2));
+    else if (t.length >= 5) out.push(t.slice(0, -1));
+    else out.push(t);
+  });
+  return out;
+}
+function translations(stem) {
+  if (stem.length < 3) return [];
+  var out = {};
+  INDEX.forEach(function (kv) {
+    var key = kv[0];
+    if (key.indexOf(" ") >= 0) return;
+    if (stem.indexOf(key) === 0 || (stem.length >= 4 && key.indexOf(stem) === 0)) {
+      kv[1].forEach(function (v) { out[v] = 1; });
+      if (key.length >= 4 && /[а-я]/.test(key)) out[key] = 1;
+    }
+  });
+  delete out[stem];
+  return Object.keys(out);
+}
+function search(q, limit) {
+  var groups = queryStems(q).map(function (s) {
+    return [s].concat(translations(s)).map(function (v) { return " " + v.replace(/%/g, ""); });
+  });
+  if (!groups.length) return [];
+  var res = PRODUCTS.filter(function (p) {
+    return groups.every(function (g) { return g.some(function (v) { return p.norm.indexOf(v) >= 0; }); });
+  });
+  res.sort(byValue);
+  return res.slice(0, limit || 200);
+}
+function byValue(a, b) {
+  var an = a.unit == null, bn = b.unit == null;
+  if (an !== bn) return an ? 1 : -1;
+  if (!an && a.unit !== b.unit) return a.unit - b.unit;
+  if (a.price !== b.price) return a.price - b.price;
+  return a.id - b.id;
+}
+
+// ================= форматирование =================
+var UNIT = { kg: "кг", l: "л" };
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function money(v) { return Number(v).toFixed(2); }
+function unitText(p) { return p.unit && p.qu ? money(p.unit) + " лей/" + (UNIT[p.qu] || p.qu) : ""; }
+function pct(now, was) { return Math.round((1 - now / was) * 100); }
+function ddmm(ts) { var d = new Date(ts * 1000); return pad(d.getDate()) + "." + pad(d.getMonth() + 1); }
+function pad(n) { return String(n).padStart(2, "0"); }
+function hhmm(ts) { var d = new Date(ts * 1000); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+function plural(n, one, few, many) {
+  if (n % 10 === 1 && n % 100 !== 11) return one;
+  if (n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14)) return few;
+  return many;
+}
+
+var ICON = {
+  search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
+  scan: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>',
+  basket: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9h18l-2 10H5L3 9z"/><path d="M8 9l3-5M16 9l-3-5"/></svg>',
+  tag: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8l9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  bell: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21h4"/></svg>',
+  back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
+  ext: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  x: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  plus: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>'
+};
+
+// ================= связь с ботом =================
+function botLink(param) {
+  if (!D || !D.bot) return null;
+  return "https://t.me/" + D.bot + "?start=" + param;
+}
+function openBot(param) {
+  var url = botLink(param);
+  if (!url) return;
+  if (tg && tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url, "_blank");
+}
+function openSite(url) {
+  if (tg && tg.openLink) tg.openLink(url); else window.open(url, "_blank");
+}
+
+// ================= состояние и навигация =================
+var S = { tab: "search", query: "", recent: [], basket: [], cardId: null, period: "all", shown: 30 };
+var app = document.getElementById("app");
+var tabsEl = document.getElementById("tabs");
+
+function render() {
+  window.scrollTo(0, 0);
+  if (S.cardId != null) { renderCard(); setBack(true); tabsEl.hidden = true; return; }
+  setBack(false);
+  tabsEl.hidden = false;
+  renderTabs();
+  if (S.tab === "search") renderSearch();
+  else if (S.tab === "basket") renderBasket();
+  else if (S.tab === "deals") renderDeals();
+  else renderMore();
+}
+function setBack(on) {
+  if (!tg || !tg.BackButton) return;
+  try { if (on) tg.BackButton.show(); else tg.BackButton.hide(); } catch (e) {}
+}
+if (tg && tg.BackButton) tg.BackButton.onClick(function () { closeCard(); });
+function openCard(id) { S.cardId = id; S.period = "all"; render(); }
+function closeCard() { S.cardId = null; render(); }
+
+function renderTabs() {
+  var tabs = [["search", "Поиск", ICON.search], ["basket", "Корзина", ICON.basket], ["deals", "Скидки", ICON.tag], ["more", "Подписки", ICON.bell]];
+  tabsEl.innerHTML = tabs.map(function (t) {
+    return '<button type="button" data-tab="' + t[0] + '"' + (S.tab === t[0] ? ' aria-current="page"' : "") + ">" + t[2] + t[1] + "</button>";
+  }).join("");
+}
+tabsEl.addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-tab]");
+  if (!b) return;
+  S.tab = b.getAttribute("data-tab");
+  render();
+});
+
+function updatedLine() {
+  var t = D.pricesUpdated, ageDays = (TODAY - t) / 86400;
+  var when = ageDays < 1 && new Date(t * 1000).getDate() === new Date().getDate() ? "сегодня, " + hhmm(t) : ddmm(t) + ", " + hhmm(t);
+  return '<div class="updated' + (ageDays >= 2 ? " old" : "") + '">цены обновлены<br>' + when + "</div>";
+}
+function storesLine() {
+  var names = {};
+  PRODUCTS.forEach(function (p) { names[p.storeName] = (names[p.storeName] || 0) + 1; });
+  var top = Object.keys(names).sort(function (a, b) { return names[b] - names[a]; });
+  return esc(top.slice(0, 2).join(" · ")) + (top.length > 2 ? " · ещё " + (top.length - 2) : "");
+}
+
+function itemHtml(p, i, best) {
+  var sale = p.old && p.old > p.price ? '<div class="sale">−' + pct(p.price, p.old) + "%</div>" : "";
+  return '<button type="button" class="item" data-card="' + p.id + '">' +
+    '<div class="rank">' + (i + 1) + "</div>" +
+    '<div class="mid">' + (best ? '<div class="best">Выгоднее всего</div>' : "") +
+    '<div class="name">' + esc(p.name) + "</div>" +
+    '<div class="meta"><span class="store">' + esc(p.storeName) + "</span>" +
+    (unitText(p) ? "<span>" + unitText(p) + "</span>" : "") +
+    (p.manual ? "<span>вручную " + ddmm(p.manual) + "</span>" : "") + "</div></div>" +
+    '<div class="right"><div class="price">' + money(p.price) + "<small> лей</small></div>" + sale + "</div></button>";
+}
+app.addEventListener("click", function (e) {
+  var c = e.target.closest("[data-card]");
+  if (c) { openCard(Number(c.getAttribute("data-card"))); }
+});
+
+// ================= экран «Поиск» =================
+var searchTimer = null;
+function renderSearch() {
+  var hasBot = !!(D && D.bot);
+  app.innerHTML = '<div class="wrap">' +
+    '<div class="top"><div><div class="eyebrow">' + storesLine() + '</div><h1>Где дешевле</h1></div>' + updatedLine() + "</div>" +
+    '<div class="searchrow"><div class="field">' + ICON.search +
+    '<label for="q" class="sr">Что ищем</label><input id="q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Например, молоко 1 л" value="' + esc(S.query) + '"></div>' +
+    (hasBot ? '<button type="button" class="iconbtn" id="scan" aria-label="Найти по штрихкоду">' + ICON.scan + "</button>" : "") + "</div>" +
+    (S.recent.length ? '<div class="chips"><span>Недавние:</span>' + S.recent.map(function (r) { return '<button type="button" class="chip" data-q="' + esc(r) + '">' + esc(r) + "</button>"; }).join("") + "</div>" : "") +
+    '<div id="results"></div></div>';
+  var input = document.getElementById("q");
+  input.addEventListener("input", function () {
+    S.query = input.value; S.shown = 30;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderResults, 180);
+  });
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { rememberQuery(S.query); input.blur(); }
+  });
+  app.querySelectorAll("[data-q]").forEach(function (b) {
+    b.addEventListener("click", function () { S.query = b.getAttribute("data-q"); S.shown = 30; renderSearch(); rememberQuery(S.query); });
+  });
+  var scan = document.getElementById("scan");
+  if (scan) scan.addEventListener("click", function () { openBot("scan"); });
+  renderResults();
+}
+function rememberQuery(q) {
+  q = q.trim().toLowerCase();
+  if (q.length < 2) return;
+  S.recent = [q].concat(S.recent.filter(function (r) { return r !== q; })).slice(0, 5);
+  store.set("recent", JSON.stringify(S.recent));
+}
+function renderResults() {
+  var box = document.getElementById("results");
+  if (!box) return;
+  var q = S.query.trim();
+  if (q.length < 2) {
+    box.innerHTML = '<div class="empty"><b>Что ищем?</b>Напиши товар, например «гречка» или «молоко 2.5».<br>Сравню ' +
+      PRODUCTS.length.toLocaleString("ru-RU") + " " + plural(PRODUCTS.length, "товар", "товара", "товаров") + " по цене за кг и литр.</div>";
+    return;
+  }
+  var rows = search(q);
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty"><b>Ничего не нашёл</b>Попробуй другое слово, например «рис» вместо «рисовая крупа».</div>';
+    return;
+  }
+  var byUnit = rows.some(function (r) { return r.unit; });
+  var shown = rows.slice(0, S.shown);
+  box.innerHTML = '<div class="list"><div class="sechead"><b>Найдено ' + (rows.length >= 200 ? "200+" : rows.length) +
+    "</b><small>" + (byUnit ? "выгодные по цене за кг/л" : "сначала дешёвые") + "</small></div>" +
+    shown.map(function (p, i) { return itemHtml(p, i, i === 0); }).join("") +
+    (rows.length > shown.length ? '<button type="button" class="more" id="more">Показать ещё</button>' : "") + "</div>";
+  var more = document.getElementById("more");
+  if (more) more.addEventListener("click", function () { S.shown += 30; renderResults(); });
+}
+
+// ================= карточка товара =================
+var PERIODS = [["m1", "1 мес", 30], ["m3", "3 мес", 90], ["all", "Всё", 0]];
+function renderCard() {
+  var p = BY_ID[S.cardId];
+  if (!p) { S.cardId = null; render(); return; }
+  var hist = (D.history[String(p.id)] || []).slice();
+  var sale = p.old && p.old > p.price ? '<div class="sale" style="font-size:13px">−' + pct(p.price, p.old) + "% · было " + money(p.old) + "</div>" : "";
+  var html = '<div class="wrap" style="padding-bottom:120px">' +
+    '<button type="button" class="back" id="back">' + ICON.back + "Назад</button>" +
+    '<div style="display:flex;flex-direction:column;gap:8px;padding:0 4px">' +
+    '<div class="pills"><span class="pill strong">' + esc(p.storeName) + "</span>" +
+    (p.manual ? '<span class="pill">добавлено вручную ' + ddmm(p.manual) + "</span>" : "") + "</div>" +
+    '<h1 style="font-size:21px;line-height:1.25">' + esc(p.name) + "</h1>" +
+    '<div class="bigprice"><div class="v">' + money(p.price) + "<small> лей</small></div>" +
+    (unitText(p) ? '<div style="font-size:14px;color:var(--hint)">' + unitText(p) + "</div>" : "") + sale + "</div></div>";
+
+  if (hist.length >= 2) {
+    var days = PERIODS.filter(function (x) { return x[0] === S.period; })[0][2];
+    var ch = buildChart(hist, p.price, days);
+    html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+      '<b style="font-weight:600;font-size:15px">История цены</b><div class="seg" role="group" aria-label="Период">' +
+      PERIODS.map(function (x) { return '<button type="button" data-period="' + x[0] + '" aria-pressed="' + (x[0] === S.period) + '">' + x[1] + "</button>"; }).join("") +
+      "</div></div>" + ch.svg +
+      '<div class="stats"><div><span>Минимум</span><b style="color:var(--sale-text)">' + money(ch.lo) + "</b></div>" +
+      "<div><span>Максимум</span><b>" + money(ch.hi) + "</b></div><div><span>В среднем</span><b>" + money(ch.avg) + "</b></div></div>" +
+      (p.price <= ch.lo ? '<div class="note-good">' + ICON.check + "Сейчас самая низкая цена за этот период</div>" : "") + "</div>";
+  } else {
+    html += '<div class="card" style="color:var(--hint);font-size:14px">Цена этого товара пока не менялась. График появится, когда она изменится.</div>';
+  }
+
+  var others = otherStores(p);
+  if (others.rows.length) {
+    html += '<div class="card" style="gap:4px"><b style="font-weight:600;font-size:15px;padding-bottom:4px">' + others.title + "</b>" +
+      others.rows.map(function (o) {
+        var cmp = "";
+        if (o.unit && p.unit && o.qu === p.qu) {
+          var d = pct(o.unit, p.unit);
+          cmp = d > 0 ? " · на " + d + "% дешевле за " + UNIT[o.qu] : d < 0 ? " · на " + (-d) + "% дороже за " + UNIT[o.qu] : "";
+        }
+        return '<button type="button" class="row" data-card="' + o.id + '"><div style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0">' +
+          '<div style="font-size:14px;font-weight:500">' + esc(o.name) + '</div><div style="font-size:12.5px;color:var(--hint)">' + esc(o.storeName) + cmp + "</div></div>" +
+          '<div style="font-weight:700;font-size:15px">' + money(o.price) + "</div></button>";
+      }).join("") + "</div>";
+  }
+  html += "</div>";
+  var bar = '<div class="actionbar">' +
+    (D.bot ? '<button type="button" class="btn" id="follow">' + ICON.bell + "Следить за ценой</button>" : "") +
+    (p.url ? '<button type="button" class="sq" id="site" aria-label="Открыть на сайте магазина">' + ICON.ext + "</button>" : "") + "</div>";
+  app.innerHTML = html + (D.bot || p.url ? bar : "");
+  document.getElementById("back").addEventListener("click", closeCard);
+  app.querySelectorAll("[data-period]").forEach(function (b) {
+    b.addEventListener("click", function () { S.period = b.getAttribute("data-period"); renderCard(); });
+  });
+  var f = document.getElementById("follow");
+  if (f) f.addEventListener("click", function () { openBot("sub_" + p.id); });
+  var s = document.getElementById("site");
+  if (s) s.addEventListener("click", function () { openSite(p.url); });
+}
+
+function otherStores(p) {
+  var ids = [];
+  Object.keys(D.barcodes || {}).forEach(function (ean) {
+    var list = D.barcodes[ean];
+    if (list.indexOf(p.id) >= 0) ids = ids.concat(list);
+  });
+  var same = ids.filter(function (id) { return id !== p.id && BY_ID[id]; }).map(function (id) { return BY_ID[id]; });
+  if (same.length) return { title: "Этот же товар в других магазинах", rows: same.sort(byValue).slice(0, 5) };
+  var words = p.name.split(/\s+/).filter(function (w) { return !/\d/.test(w) && w.length > 2; }).slice(0, 2);
+  if (!words.length) return { rows: [] };
+  var seen = {};
+  var rows = search(words.join(" ")).filter(function (o) {
+    if (o.store === p.store || seen[o.store]) return false;
+    seen[o.store] = 1; return true;
+  }).slice(0, 4);
+  return { title: "Похожее в других магазинах", rows: rows };
+}
+
+function buildChart(hist, current, days) {
+  var nowT = TODAY;
+  var start = days ? nowT - days * 86400 : hist[0][0];
+  var startPrice = hist[0][1];
+  hist.forEach(function (h) { if (h[0] <= start) startPrice = h[1]; });
+  var seg = [[start, startPrice]].concat(hist.filter(function (h) { return h[0] > start; }));
+  var prices = seg.map(function (s) { return s[1]; });
+  var lo = Math.min.apply(null, prices), hi = Math.max.apply(null, prices);
+  var span = (hi - lo) || lo * 0.1, yMin = lo - span * 0.3, yMax = hi + span * 0.3;
+  var W = 326, x0 = 38, x1 = 320;
+  function X(t) { return Math.round((x0 + (t - start) / Math.max(nowT - start, 1) * (x1 - x0)) * 10) / 10; }
+  function Y(v) { return Math.round((12 + (yMax - v) / (yMax - yMin) * 116) * 10) / 10; }
+  var line = "M" + X(seg[0][0]) + " " + Y(seg[0][1]);
+  for (var i = 1; i < seg.length; i++) line += " H" + X(seg[i][0]) + " V" + Y(seg[i][1]);
+  line += " H" + X(nowT);
+  var area = line + " V128 H" + X(start) + " Z";
+  var total = 0;
+  for (var j = 0; j < seg.length; j++) {
+    var until = j + 1 < seg.length ? seg[j + 1][0] : nowT;
+    total += seg[j][1] * Math.max(until - seg[j][0], 0);
+  }
+  var avg = total / Math.max(nowT - start, 1);
+  var iLo = prices.lastIndexOf(lo);
+  var mx = iLo === seg.length - 1 ? X(nowT) - 4 : X(seg[iLo][0]);
+  var mid = (lo + hi) / 2, midT = start + (nowT - start) / 2;
+  function tick(v) { return '<line x1="' + x0 + '" x2="' + x1 + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--line)"/><text x="32" y="' + (Y(v) + 4) + '" text-anchor="end" font-size="11" fill="var(--hint)">' + money(v) + "</text>"; }
+  var svg = '<svg viewBox="0 0 ' + W + ' 152" width="100%" role="img" aria-label="График цены: от ' + money(lo) + " до " + money(hi) + ' лей" style="font-family:var(--body)">' +
+    tick(hi) + tick(mid) + tick(lo) +
+    '<path d="' + area + '" fill="var(--chart)" fill-opacity="0.14"/>' +
+    '<path d="' + line + '" fill="none" stroke="var(--chart)" stroke-width="2.5" stroke-linejoin="round"/>' +
+    '<circle cx="' + mx + '" cy="' + Y(lo) + '" r="5" fill="var(--low)" stroke="var(--card)" stroke-width="2"/>' +
+    '<text x="' + x0 + '" y="148" font-size="11" fill="var(--hint)">' + ddmm(start) + "</text>" +
+    '<text x="' + ((x0 + x1) / 2) + '" y="148" text-anchor="middle" font-size="11" fill="var(--hint)">' + ddmm(midT) + "</text>" +
+    '<text x="' + x1 + '" y="148" text-anchor="end" font-size="11" fill="var(--hint)">сегодня</text></svg>';
+  return { svg: svg, lo: lo, hi: hi, avg: avg };
+}
+
+// ================= корзина (как basket.py) =================
+function parseItems(text) {
+  var items = [];
+  text.split(/[\n,;]+/).forEach(function (part) {
+    part = part.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim();
+    if (part.length >= 2 && !items.some(function (i) { return i.toLowerCase() === part.toLowerCase(); })) items.push(part.slice(0, 60));
+  });
+  return items.slice(0, 20);
+}
+function fmtQty(q, unit) { return String(+q.toFixed(3)).replace(".", ",") + " " + (UNIT[unit] || unit); }
+function r2(v) { return Math.round(v * 100) / 100; }
+function compareBasket(items) {
+  var stores = {}, mix = [], notFound = [];
+  items.forEach(function (q) {
+    var rows = search(q);
+    if (!rows.length) { notFound.push(q); return; }
+    var best = rows[0], refQty = best.unit ? best.price / best.unit : null;
+    var ref = refQty ? "за " + fmtQty(refQty, best.qu) : "";
+    var per = {};
+    rows.forEach(function (r) {
+      if (per[r.store]) return;
+      var cost = refQty && r.unit && r.qu === best.qu ? r2(r.unit * refQty) : r.price;
+      per[r.store] = { q: q, row: r, cost: cost, ref: ref };
+    });
+    var choices = Object.keys(per).map(function (k) { return per[k]; });
+    mix.push(choices.reduce(function (a, b) { return b.cost < a.cost ? b : a; }));
+    choices.forEach(function (c) {
+      var st = stores[c.row.store] || (stores[c.row.store] = { id: c.row.store, name: c.row.storeName, total: 0, items: [] });
+      st.items.push(c); st.total = r2(st.total + c.cost);
+    });
+  });
+  var found = items.filter(function (q) { return notFound.indexOf(q) < 0; });
+  var ranked = Object.keys(stores).map(function (k) {
+    var st = stores[k], have = st.items.map(function (c) { return c.q; });
+    st.missing = found.filter(function (q) { return have.indexOf(q) < 0; });
+    return st;
+  }).sort(function (a, b) { return a.missing.length - b.missing.length || a.total - b.total; });
+  return { stores: ranked, mix: mix, notFound: notFound, found: found,
+           mixTotal: r2(mix.reduce(function (s, c) { return s + c.cost; }, 0)) };
+}
+
+function renderBasket() {
+  var n = S.basket.length;
+  var html = '<div class="wrap"><div class="top"><div><div class="eyebrow">' +
+    (n ? n + " " + plural(n, "товар", "товара", "товаров") : "Список покупок") + '</div><h1>Корзина</h1></div></div>' +
+    '<div class="card" style="padding:6px 6px 8px;gap:0">' +
+    S.basket.map(function (it, i) {
+      return '<div class="bitem"><span class="dot"></span><div>' + esc(it) + '</div><button type="button" class="x" data-rm="' + i + '" aria-label="Убрать ' + esc(it) + '">' + ICON.x + "</button></div>";
+    }).join("") +
+    '<div class="addrow"><label for="add" class="sr">Добавить товар</label><input id="add" type="text" enterkeyhint="done" placeholder="' +
+    (n ? "Добавить товар…" : "Например: молоко, гречка, яйца") + '"><button type="button" id="addbtn" aria-label="Добавить">' + ICON.plus + "</button></div></div>";
+
+  if (n) {
+    var res = compareBasket(S.basket);
+    if (res.stores.length) {
+      html += '<div class="list" style="gap:8px"><div class="sechead"><b>Весь список в одном магазине</b></div>' +
+        res.stores.slice(0, 5).map(function (st, i) {
+          var total = res.found.length, have = st.items.length;
+          var cells = "";
+          for (var k = 0; k < total; k++) cells += '<i class="' + (k < have ? "on" : "") + '"></i>';
+          var cov = st.missing.length ? have + " из " + total + " · нет: " + esc(st.missing.slice(0, 3).join(", ")) + (st.missing.length > 3 ? "…" : "") : "всё есть";
+          return '<div class="srow"><div class="place' + (i === 0 ? " first" : "") + '">' + (i + 1) + '</div><div style="flex:1;display:flex;flex-direction:column;gap:5px;min-width:0">' +
+            '<div style="font-size:15px;font-weight:600">' + esc(st.name) + '</div><div style="display:flex;align-items:center;gap:6px"><div class="cells" aria-hidden="true">' + (total <= 10 ? cells : "") +
+            '</div><span style="font-size:12.5px;color:var(--hint)">' + cov + "</span></div></div>" +
+            '<div class="price" style="font-size:16px">≈ ' + money(st.total) + "<small> лей</small></div></div>";
+        }).join("") + "</div>";
+
+      var groups = {};
+      res.mix.forEach(function (c) { (groups[c.row.storeName] = groups[c.row.storeName] || []).push(c); });
+      var complete = res.stores.filter(function (s) { return !s.missing.length; });
+      var saving = complete.length && Object.keys(groups).length > 1 ? complete[0].total - res.mixTotal : 0;
+      var refs = res.mix.filter(function (c) { return c.ref; }).slice(0, 2).map(function (c) { return esc(c.q) + " " + c.ref; });
+      html += '<div class="mix"><div class="h"><div><div class="lbl">Каждое — там, где дешевле</div><div class="sum">≈ ' + money(res.mixTotal) + " <small>лей</small></div></div>" +
+        (saving >= 1 ? '<div class="save">−' + money(saving) + " лей</div>" : "") + "</div>" +
+        '<div class="groups">' + Object.keys(groups).map(function (name) {
+          return '<div class="g"><b>' + esc(name) + " · " + groups[name].length + "</b><div>" +
+            groups[name].map(function (c) { return esc(c.q) + " " + money(c.cost); }).join("<br>") + "</div></div>";
+        }).join("") + "</div>" +
+        (refs.length ? '<div class="foot">Цены приведены к одинаковому количеству: ' + refs.join(", ") + ".</div>" : "") + "</div>";
+    }
+    if (res.notFound.length) html += '<div class="empty" style="padding:8px">Не нашёл: ' + esc(res.notFound.join(", ")) + "</div>";
+  } else {
+    html += '<div class="empty"><b>Добавь товары</b>Можно сразу несколько через запятую. Я посчитаю, в каком магазине весь список выйдет дешевле.</div>';
+  }
+  app.innerHTML = html + "</div>";
+  var input = document.getElementById("add");
+  function add() {
+    var items = parseItems(input.value);
+    if (!items.length) return;
+    items.forEach(function (it) { if (!S.basket.some(function (b) { return b.toLowerCase() === it.toLowerCase(); })) S.basket.push(it); });
+    S.basket = S.basket.slice(0, 20);
+    saveBasket(); renderBasket();
+    var again = document.getElementById("add"); if (again) again.focus();
+  }
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") add(); });
+  document.getElementById("addbtn").addEventListener("click", add);
+  app.querySelectorAll("[data-rm]").forEach(function (b) {
+    b.addEventListener("click", function () { S.basket.splice(Number(b.getAttribute("data-rm")), 1); saveBasket(); renderBasket(); });
+  });
+}
+function saveBasket() { store.set("basket", JSON.stringify(S.basket)); }
+
+// ================= скидки (как digest.py) =================
+function weekDrops() {
+  var since = TODAY - 7 * 86400, out = [];
+  PRODUCTS.forEach(function (p) {
+    var h = D.history[String(p.id)];
+    if (!h || h.length < 2) return;
+    var was = 0;
+    for (var i = 0; i < h.length - 1; i++) if (h[i][0] >= since) was = Math.max(was, h[i][1]);
+    for (var j = h.length - 1; j >= 0; j--) if (h[j][0] < since) { was = Math.max(was, h[j][1]); break; }
+    if (was > p.price * 1.02) out.push({ p: p, was: was });
+  });
+  out.sort(function (a, b) { return (b.was - b.p.price) / b.was - (a.was - a.p.price) / a.was; });
+  return out.slice(0, 15);
+}
+function topDiscounts() {
+  return PRODUCTS.filter(function (p) { return p.old && p.old > p.price * 1.05; })
+    .sort(function (a, b) { return (b.old - b.price) / b.old - (a.old - a.price) / a.old; }).slice(0, 20);
+}
+function renderDeals() {
+  var drops = weekDrops(), deals = topDiscounts();
+  var html = '<div class="wrap"><div class="top"><div><div class="eyebrow">Обновляется вместе с ценами</div><h1>Скидки</h1></div>' + updatedLine() + "</div>";
+  if (drops.length) {
+    html += '<div class="list"><div class="sechead"><b>Подешевели за неделю</b></div>' + drops.map(function (d, i) {
+      return itemHtml(Object.assign({}, d.p, { old: d.was }), i, false);
+    }).join("") + "</div>";
+  }
+  if (deals.length) {
+    html += '<div class="list"><div class="sechead"><b>Самые большие скидки</b><small>по ценникам магазинов</small></div>' +
+      deals.map(function (p, i) { return itemHtml(p, i, false); }).join("") + "</div>";
+  }
+  if (!drops.length && !deals.length) html += '<div class="empty"><b>Пока пусто</b>Скидки появятся после следующего обновления цен.</div>';
+  app.innerHTML = html + "</div>";
+}
+
+// ================= «Подписки» =================
+function renderMore() {
+  var html = '<div class="wrap"><div class="top"><div><div class="eyebrow">Живут в боте</div><h1>Подписки</h1></div></div>' +
+    '<div class="card" style="font-size:15px;line-height:1.5">Чтобы следить за ценой, открой товар и нажми «Следить за ценой»: бот пришлёт сообщение, когда он подешевеет.</div>';
+  if (D.bot) {
+    html += '<button type="button" class="btn" data-bot="subs">' + ICON.bell + "Мои подписки</button>" +
+      '<button type="button" class="btn ghost" data-bot="digest">Сводка недели</button>' +
+      '<button type="button" class="btn ghost" data-bot="add">Добавить цену вручную</button>' +
+      '<button type="button" class="btn ghost" data-bot="scan">Найти по фото штрихкода</button>';
+  }
+  html += '<div class="empty" style="font-size:13px">Данные: ' + PRODUCTS.length.toLocaleString("ru-RU") + " " + plural(PRODUCTS.length, "товар", "товара", "товаров") +
+    " из " + STORE_COUNT + " " + plural(STORE_COUNT, "магазина", "магазинов", "магазинов") + ".<br>Цены могут отличаться от цен на полке.</div></div>";
+  app.innerHTML = html;
+  app.querySelectorAll("[data-bot]").forEach(function (b) {
+    b.addEventListener("click", function () { openBot(b.getAttribute("data-bot")); });
+  });
+}
+
+// ================= старт =================
+function start() {
+  var pending = 2;
+  function done() { if (--pending === 0) render(); }
+  store.get("recent", function (v) { try { S.recent = JSON.parse(v) || []; } catch (e) { S.recent = []; } done(); });
+  store.get("basket", function (v) { try { S.basket = JSON.parse(v) || []; } catch (e) { S.basket = []; } done(); });
+}
+loadData().then(start).catch(function (e) {
+  app.innerHTML = '<div class="wrap"><div class="empty"><b>Не удалось загрузить цены</b>Проверь интернет и открой приложение ещё раз.<br><small>' + esc(e.message) + "</small></div></div>";
+});
+</script>
+</body>
+</html>
