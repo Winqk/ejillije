@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Воздушные барабаны</title>
+<meta name="description" content="Играйте на барабанах по воздуху: камера ноутбука и нейросеть превращают взмахи палочками в звук полной ударной установки.">
+<style>
+:root{
+  --bg:#07090d;--panel:rgba(16,20,28,.92);--panel-2:#0d1118;--line:rgba(255,255,255,.09);
+  --text:#eef2f7;--hint:#9aa6b8;--a:#38e1ff;--b:#ff5fa2;--gold:#f2c14e;--danger:#ff7a6b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-text-size-adjust:100%}
+body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
+button,input{font:inherit;color:inherit}
+[hidden]{display:none!important}
+
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 16px;
+  background:var(--panel);border-bottom:1px solid var(--line);z-index:5}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.2px;margin-right:auto;white-space:nowrap}
+.brand i{width:12px;height:12px;border-radius:50%;background:conic-gradient(var(--a),var(--b),var(--gold),var(--a));
+  box-shadow:0 0 12px rgba(56,225,255,.6)}
+.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{border:0;background:transparent;color:var(--hint);padding:6px 11px;border-radius:7px;cursor:pointer;font-weight:600;font-size:14px}
+.seg button.on{background:#202a38;color:var(--text)}
+.btn{border:1px solid var(--line);background:#161c27;color:var(--text);padding:7px 12px;border-radius:9px;cursor:pointer;font-weight:600;font-size:14px}
+.btn:hover{background:#1d2532}
+.btn.on{background:var(--a);border-color:var(--a);color:#03141a}
+.btn.ghost{background:transparent}
+.btn.beat{box-shadow:0 0 0 3px rgba(242,193,78,.55)}
+.ctl{display:flex;align-items:center;gap:8px;color:var(--hint);font-size:13px;white-space:nowrap}
+.ctl input[type=range]{accent-color:var(--a);width:104px}
+.metro{display:flex;align-items:center;gap:6px}
+.metro input{width:62px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:6px 6px;text-align:center}
+.swatches{display:flex;align-items:center;gap:6px}
+.swatches .sw{width:20px;height:20px;border-radius:50%;border:2px solid rgba(255,255,255,.75)}
+.swatches .lbl{color:var(--hint);font-size:13px}
+.swatches button{border:0;background:transparent;color:var(--hint);cursor:pointer;font-size:13px;text-decoration:underline;padding:2px}
+
+main{position:relative;flex:1;min-height:0;display:grid;place-items:center}
+#stage{display:block;border-radius:14px;background:#0b0e14;box-shadow:0 12px 50px rgba(0,0,0,.55);touch-action:none}
+#stage.edit{cursor:grab}
+#stage.pick{cursor:crosshair}
+#video{position:absolute;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+.pill{position:absolute;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);
+  background:rgba(10,13,19,.88);border:1px solid var(--line);border-radius:999px;padding:8px 16px;
+  font-size:14px;text-align:center;backdrop-filter:blur(6px);pointer-events:none}
+#status{top:18px}
+#status.err{border-color:rgba(255,122,107,.6);color:#ffd2cc}
+#hint{bottom:18px;color:#d7dee9}
+#hud{position:absolute;left:22px;bottom:18px;font-size:12px;color:var(--hint);pointer-events:none;
+  font-variant-numeric:tabular-nums;text-shadow:0 1px 2px #000}
+
+.overlay{position:absolute;inset:0;display:grid;place-items:center;padding:16px;overflow:auto;
+  background:radial-gradient(1200px 600px at 50% 0%,rgba(56,225,255,.10),transparent 60%),
+             radial-gradient(900px 500px at 80% 100%,rgba(255,95,162,.10),transparent 60%),rgba(5,7,11,.92);z-index:4}
+.card{width:100%;max-width:660px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:26px 28px}
+.card h1{margin:0 0 6px;font-size:28px;letter-spacing:-.3px}
+.card .lead{margin:0 0 18px;color:var(--hint);line-height:1.5}
+.card ol{margin:0 0 18px;padding-left:20px;line-height:1.55}
+.card li{margin-bottom:8px}
+.card li b{color:var(--text)}
+.card .note{color:var(--hint);font-size:13px;line-height:1.5;margin:14px 0 0}
+.kbd{display:inline-block;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:0 6px;font-size:13px;background:#121822}
+.start{display:inline-flex;align-items:center;gap:10px;border:0;border-radius:12px;padding:13px 20px;cursor:pointer;
+  font-weight:800;font-size:16px;color:#04131a;background:linear-gradient(90deg,var(--a),#7cf0ff)}
+.start:disabled{opacity:.6;cursor:progress}
+.err-text{color:var(--danger);margin-top:12px;line-height:1.45}
+
+@media (max-width:720px){
+  .bar{padding:8px 12px;gap:8px}
+  .ctl input[type=range]{width:80px}
+  .card{padding:20px 18px}
+  .card h1{font-size:23px}
+  #hud{left:12px}
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><i></i>Воздушные барабаны</div>
+  <div class="seg" id="modeSeg" aria-label="Как отслеживать палочки">
+    <button type="button" data-mode="hands" title="Нейросеть находит кисти рук — ничего не нужно настраивать">Руки · ИИ</button>
+    <button type="button" data-mode="color" title="Точнее: отслеживает яркие кончики палочек">Цветные кончики</button>
+  </div>
+  <div class="swatches" id="swatches" hidden></div>
+  <label class="ctl">Чувствительность <input id="sens" type="range" min="1" max="10" step="1"></label>
+  <label class="ctl">Громкость <input id="vol" type="range" min="0" max="100" step="1"></label>
+  <div class="metro">
+    <button type="button" class="btn" id="metroBtn">Метроном</button>
+    <input id="bpm" type="number" min="40" max="240" step="1" aria-label="Темп, ударов в минуту">
+    <span class="ctl">BPM</span>
+  </div>
+  <button type="button" class="btn" id="editBtn">Расставить</button>
+  <button type="button" class="btn ghost" id="resetBtn" hidden>По умолчанию</button>
+</header>
+
+<main id="wrap">
+  <canvas id="stage"></canvas>
+  <div id="status" class="pill" hidden></div>
+  <div id="hint" class="pill" hidden></div>
+  <div id="hud"></div>
+
+  <section class="overlay" id="intro">
+    <div class="card">
+      <h1>Воздушные барабаны</h1>
+      <p class="lead">Камера ноутбука и нейросеть превращают взмахи карандашами или палочками в звук полной ударной установки: бочка, малый, три тома, хай-хэт, крэш и райд.</p>
+      <ol>
+        <li>Сядьте в <b>1–1,5 м от камеры</b>, чтобы обе руки были в кадре, а свет падал спереди.</li>
+        <li><b>Бейте по воздуху сверху вниз и резко останавливайте руку.</b> Звучит барабан, над которым палочка остановилась. Чем быстрее удар, тем громче.</li>
+        <li><b>Бочка</b> — <span class="kbd">Пробел</span>, <b>открытый хай-хэт</b> — держите <span class="kbd">Shift</span>. Клавиши <span class="kbd">1</span>–<span class="kbd">7</span> тоже играют.</li>
+        <li>Режим <b>«Руки · ИИ»</b> работает сразу. Для максимальной точности переключитесь на <b>«Цветные кончики»</b>: обмотайте кончики яркой изолентой и кликните по ним на видео.</li>
+      </ol>
+      <button type="button" class="start" id="startBtn">Включить камеру и играть</button>
+      <div class="err-text" id="startErr" hidden></div>
+      <p class="note">Видео никуда не отправляется: нейросеть работает прямо в браузере. Лучше играть в проводных наушниках или через динамики ноутбука: Bluetooth добавляет заметную задержку звука. Барабаны можно передвинуть кнопкой «Расставить».</p>
+    </div>
+  </section>
+</main>
+<video id="video" playsinline muted></video>
+
+<script type="module">
+/* ============================================================
+   Воздушные барабаны — камера + ИИ + синтез ударной установки
+   ============================================================ */
+const MP_VER = '0.10.14';
+const MP_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = s => document.querySelector(s);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('airdrums:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('airdrums:' + k, JSON.stringify(v)); } catch (e) { /* приватный режим */ } },
+};
+
+/* ---------------------- Звук: синтез установки ---------------------- */
+class DrumKit {
+  constructor() { this.ctx = null; this.openHat = null; }
+
+  init(ctx) {
+    this.ctx = ctx;
+    const c = ctx;
+    this.master = c.createGain();
+    this.comp = c.createDynamicsCompressor();
+    this.comp.threshold.value = -12; this.comp.knee.value = 10; this.comp.ratio.value = 4;
+    this.comp.attack.value = 0.002; this.comp.release.value = 0.18;
+    this.bus = c.createGain(); this.bus.gain.value = 0.85;
+    this.verbIn = c.createGain();
+    this.verb = c.createConvolver(); this.verb.buffer = this.makeIR(1.7, 3.2);
+    this.verbOut = c.createGain(); this.verbOut.gain.value = 0.55;
+    this.bus.connect(this.comp);
+    this.verbIn.connect(this.verb); this.verb.connect(this.verbOut); this.verbOut.connect(this.comp);
+    this.comp.connect(this.master); this.master.connect(c.destination);
+    this.noise = this.makeNoise(3);
+    this.kickShaper = c.createWaveShaper();
+    const n = 1024, curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; curve[i] = Math.tanh(x * 2.4) / Math.tanh(2.4); }
+    this.kickShaper.curve = curve;
+    this.kickShaper.connect(this.bus);
+    const ks = c.createGain(); ks.gain.value = 0.06; this.kickShaper.connect(ks); ks.connect(this.verbIn);
+  }
+
+  setVolume(x) { if (this.master) this.master.gain.value = Math.pow(clamp(x, 0, 1), 1.5) * 1.1; }
+
+  makeNoise(sec) {
+    const c = this.ctx, len = Math.floor(c.sampleRate * sec);
+    const b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  makeIR(sec, decay) {
+    const c = this.ctx, rate = c.sampleRate, len = Math.floor(rate * sec);
+    const b = c.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const t = i / len;
+        const fadeIn = i < rate * 0.006 ? i / (rate * 0.006) : 1;
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay) * fadeIn;
+      }
+    }
+    return b;
+  }
+
+  // помощники
+  G(t, peak, a, d) {
+    const g = this.ctx.createGain(), p = Math.max(peak, 0.0002);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(p, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+    return g;
+  }
+  osc(type, f, t, dur) {
+    const o = this.ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f, t); o.start(t); o.stop(t + dur + 0.05);
+    return o;
+  }
+  noiseSrc(t, dur) {
+    const s = this.ctx.createBufferSource(); s.buffer = this.noise; s.loop = true;
+    s.start(t, Math.random() * 2); s.stop(t + dur + 0.05);
+    return s;
+  }
+  bq(type, f, q = 0.7, gain = 0) {
+    const b = this.ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.gain.value = gain;
+    return b;
+  }
+  metal(t, fund, dur) { // 6 квадратных генераторов с «металлическими» соотношениями
+    const ratios = [2, 3, 4.16, 5.43, 6.79, 8.21];
+    const mix = this.ctx.createGain(); mix.gain.value = 1 / ratios.length;
+    for (const r of ratios) this.osc('square', fund * r, t, dur).connect(mix);
+    return mix;
+  }
+  out(node, send = 0) {
+    node.connect(this.bus);
+    if (send > 0) { const s = this.ctx.createGain(); s.gain.value = send; node.connect(s); s.connect(this.verbIn); }
+  }
+
+  // инструменты
+  kick(v, t) {
+    const o = this.osc('sine', 165, t, 0.6);
+    o.frequency.exponentialRampToValueAtTime(60, t + 0.05);
+    o.frequency.exponentialRampToValueAtTime(43, t + 0.4);
+    const g = this.G(t, 1.0 * v, 0.003, 0.55);
+    o.connect(g); g.connect(this.kickShaper);
+    const n = this.noiseSrc(t, 0.03), f = this.bq('bandpass', 3200, 0.9), g2 = this.G(t, 0.32 * v, 0.001, 0.025);
+    n.connect(f).connect(g2); this.out(g2);
+  }
+  snare(v, t) {
+    const o = this.osc('triangle', 205, t, 0.2);
+    o.frequency.exponentialRampToValueAtTime(168, t + 0.08);
+    const g = this.G(t, 0.75 * v, 0.001, 0.14); o.connect(g); this.out(g, 0.15);
+    const o2 = this.osc('sine', 340, t, 0.12), g2 = this.G(t, 0.28 * v, 0.001, 0.07); o2.connect(g2); this.out(g2, 0.1);
+    const n = this.noiseSrc(t, 0.35), hp = this.bq('highpass', 1100), pk = this.bq('peaking', 4500, 1, 5);
+    const lp = this.bq('lowpass', 7000 + 6000 * v), g3 = this.G(t, 0.8 * v, 0.001, 0.26);
+    n.connect(hp).connect(pk).connect(lp).connect(g3); this.out(g3, 0.3);
+  }
+  hat(v, t, open) {
+    if (this.openHat) { // педаль глушит открытый хай-хэт
+      const p = this.openHat.gain; p.cancelScheduledValues(t); p.setValueAtTime(Math.max(p.value, 0.0001), t);
+      p.setTargetAtTime(0.0001, t, 0.012); this.openHat = null;
+    }
+    const d = open ? 0.75 : 0.075;
+    const mix = this.metal(t, 40, d + 0.05), bp = this.bq('bandpass', 10000, 0.8), hp = this.bq('highpass', 7000);
+    const g = this.G(t, (open ? 0.85 : 1.1) * v, 0.0008, d);
+    mix.connect(bp).connect(hp).connect(g);
+    const n = this.noiseSrc(t, d + 0.05), nh = this.bq('highpass', 8000), ng = this.ctx.createGain(); ng.gain.value = 0.35;
+    n.connect(nh).connect(ng).connect(g);
+    this.out(g, 0.12);
+    if (open) this.openHat = g;
+  }
+  tom(v, t, f0, decay) {
+    const o = this.osc('sine', f0 * 1.6, t, decay + 0.1);
+    o.frequency.exponentialRampToValueAtTime(f0, t + 0.06);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.9, t + decay);
+    const g = this.G(t, 0.95 * v, 0.002, decay); o.connect(g); this.out(g, 0.28);
+    const o2 = this.osc('triangle', f0 * 2.4, t, 0.2);
+    o2.frequency.exponentialRampToValueAtTime(f0 * 1.5, t + 0.05);
+    const g2 = this.G(t, 0.18 * v, 0.001, 0.12); o2.connect(g2); this.out(g2, 0.2);
+    const n = this.noiseSrc(t, 0.06), lp = this.bq('lowpass', 3000), g3 = this.G(t, 0.3 * v, 0.001, 0.05);
+    n.connect(lp).connect(g3); this.out(g3, 0.15);
+  }
+  crash(v, t) {
+    const n = this.noiseSrc(t, 2.7), hp = this.bq('highpass', 3000), lp = this.bq('lowpass', 12500);
+    const g = this.G(t, 0.42 * v, 0.002, 2.4);
+    n.connect(hp).connect(lp).connect(g); this.out(g, 0.35);
+    const mix = this.metal(t, 57, 1.8), mh = this.bq('highpass', 5500), g2 = this.G(t, 0.4 * v, 0.001, 1.6);
+    mix.connect(mh).connect(g2); this.out(g2, 0.3);
+    const n2 = this.noiseSrc(t, 0.08), bp = this.bq('bandpass', 5000, 0.6), g3 = this.G(t, 0.55 * v, 0.001, 0.06);
+    n2.connect(bp).connect(g3); this.out(g3, 0.2);
+  }
+  ride(v, t) {
+    const mix = this.metal(t, 72, 1.9), bp = this.bq('bandpass', 8000, 1.4), g = this.G(t, 1.25 * v, 0.001, 1.5);
+    mix.connect(bp).connect(g); this.out(g, 0.25);
+    const n = this.noiseSrc(t, 1.0), hp = this.bq('highpass', 9000), g2 = this.G(t, 0.16 * v, 0.001, 0.9);
+    n.connect(hp).connect(g2); this.out(g2, 0.2);
+    for (const f of [3100, 4350]) {
+      const o = this.osc('sine', f, t, 0.5), go = this.G(t, 0.05 * v, 0.001, 0.45); o.connect(go); this.out(go, 0.2);
+    }
+  }
+  click(t, accent) {
+    const o = this.osc('sine', accent ? 1760 : 1175, t, 0.06), g = this.G(t, accent ? 0.45 : 0.28, 0.001, 0.05);
+    o.connect(g); g.connect(this.master);
+  }
+
+  play(id, vel = 0.8, opts = {}) {
+    if (!this.ctx) return;
+    const t = opts.when ?? this.ctx.currentTime, v = clamp(vel, 0.05, 1);
+    switch (id) {
+      case 'kick': this.kick(v, t); break;
+      case 'snare': this.snare(v, t); break;
+      case 'hihat': this.hat(v, t, !!opts.open); break;
+      case 'tom1': this.tom(v, t, 215, 0.5); break;
+      case 'tom2': this.tom(v, t, 160, 0.62); break;
+      case 'floor': this.tom(v, t, 102, 0.9); break;
+      case 'crash': this.crash(v, t); break;
+      case 'ride': this.ride(v, t); break;
+    }
+  }
+}
+
+/* ---------------------- Расстановка установки ---------------------- */
+// координаты в долях кадра (кадр зеркальный, как в зеркале); r — радиус в долях ширины
+const PADS_DEFAULT = [
+  { id: 'crash', name: 'Крэш', type: 'cymbal', x: 0.15, y: 0.28, r: 0.115, key: '1' },
+  { id: 'hihat', name: 'Хай-хэт', type: 'hihat', x: 0.16, y: 0.60, r: 0.095, key: '2' },
+  { id: 'snare', name: 'Малый', type: 'drum', x: 0.36, y: 0.74, r: 0.10, key: '3' },
+  { id: 'tom1', name: 'Том 1', type: 'drum', x: 0.39, y: 0.42, r: 0.082, key: '4' },
+  { id: 'tom2', name: 'Том 2', type: 'drum', x: 0.61, y: 0.42, r: 0.082, key: '5' },
+  { id: 'floor', name: 'Напольный', type: 'drum', x: 0.65, y: 0.75, r: 0.108, key: '6' },
+  { id: 'ride', name: 'Райд', type: 'cymbal', x: 0.85, y: 0.34, r: 0.125, key: '7' },
+  { id: 'kick', name: 'Бочка', type: 'kick', x: 0.5, y: 0.94, r: 0.075, key: 'Пробел' },
+];
+function loadPads() {
+  const saved = store.get('pads', null) || {};
+  return PADS_DEFAULT.map(d => {
+    const s = saved[d.id];
+    const ok = s && [s.x, s.y, s.r].every(Number.isFinite);
+    return { ...d, ...(ok ? { x: s.x, y: s.y, r: s.r } : {}), hitT: -1e9, hitColor: '255,255,255' };
+  });
+}
+function savePads() { const o = {}; for (const p of pads) o[p.id] = { x: p.x, y: p.y, r: p.r }; store.set('pads', o); }
+
+/* ---------------------- Состояние ---------------------- */
+const settings = {
+  mode: store.get('mode', 'hands') === 'color' ? 'color' : 'hands',
+  sens: clamp(+store.get('sens', 6) || 6, 1, 10),
+  vol: clamp(+store.get('vol', 80), 0, 100),
+  bpm: clamp(+store.get('bpm', 100) || 100, 40, 240),
+  colors: (store.get('colors', []) || []).filter(c => c && Number.isFinite(c.h)).slice(0, 2),
+};
+let pads = loadPads();
+const kit = new DrumKit();
+const video = $('#video'), canvas = $('#stage'), g = canvas.getContext('2d');
+let aspect = 16 / 9, dpr = 1;
+let running = false, editing = false, drag = null, shiftDown = false;
+let landmarker = null, handsLoading = null, HAND_CONNECTIONS = [], lastHands = [];
+let lastVideoTime = -1, detFrames = 0, detFps = 0, detFpsT = performance.now(), hitCount = 0;
+const splashes = [];
+const STICK_RGB = ['56,225,255', '255,95,162'];
+const hits = [];
+window.__airdrums = { kit, pads: () => pads, hits, settings, DrumKit };
+
+const MODE_CFG = { hands: { vOn: 0.75, minTravel: 0.03 }, color: { vOn: 1.0, minTravel: 0.04 } };
+let C = makeCfg();
+function makeCfg() {
+  const f = 1.9 - 0.15 * settings.sens; // чувствительность 6 → 1.0
+  const m = MODE_CFG[settings.mode];
+  return { vOn: m.vOn * f, minTravel: m.minTravel * Math.max(0.6, f), release: 0.5, refractory: 85 };
+}
+
+/* ---------------------- Палочки: детектор ударов ---------------------- */
+// Удар = быстрое движение вниз, затем резкое торможение. Звучит барабан в точке торможения.
+class Stick {
+  constructor(i) { this.i = i; this.rgb = STICK_RGB[i]; this.lastHit = -1e9; this.reset(); }
+  reset() { this.active = false; this.striking = false; this.trail = []; this.vy = 0; this.lastSeen = -1e9; }
+  start(x, y, t) {
+    Object.assign(this, { active: true, x, y, t, lastSeen: t, vy: 0, striking: false });
+    this.trail = [{ x, y, t }];
+  }
+  update(px, py, t) {
+    if (!this.active || t - this.lastSeen > 250) { this.start(px, py, t); return null; }
+    if (Math.hypot((px - this.x) * aspect, py - this.y) > 0.5) { this.start(px, py, t); return null; } // скачок трекинга
+    const dt = Math.max(8, t - this.t) / 1000;
+    const a = 0.7, nx = this.x + (px - this.x) * a, ny = this.y + (py - this.y) * a;
+    const prevY = this.y, vy = (ny - this.y) / dt;
+    Object.assign(this, { x: nx, y: ny, t, lastSeen: t, vy });
+    this.trail.push({ x: nx, y: ny, t }); if (this.trail.length > 14) this.trail.shift();
+    if (!this.striking) {
+      if (vy > C.vOn && t - this.lastHit > C.refractory) {
+        Object.assign(this, { striking: true, peak: vy, startY: prevY, strikeT: t });
+      }
+      return null;
+    }
+    if (vy > this.peak) this.peak = vy;
+    if (vy < this.peak * C.release) {
+      this.striking = false;
+      if (this.y - this.startY >= C.minTravel) { this.lastHit = t; return { x: this.x, y: this.y, peak: this.peak }; }
+    } else if (t - this.strikeT > 450) this.striking = false;
+    return null;
+  }
+  miss(t) { // палочка пропала на кадр (часто — смаз на самом ударе)
+    if (!this.active) return null;
+    let hit = null;
+    if (this.striking && t - this.lastSeen < 120) {
+      this.striking = false;
+      const y = Math.min(1, this.y + this.vy * 0.03);
+      if (this.peak > C.vOn * 1.25 && y - this.startY >= C.minTravel) { this.lastHit = t; hit = { x: this.x, y, peak: this.peak }; }
+    }
+    if (t - this.lastSeen > 300) this.active = false;
+    return hit;
+  }
+}
+const sticks = [new Stick(0), new Stick(1)];
+
+function assign(points) {
+  const out = [null, null];
+  if (!points.length) return out;
+  if (points.some(p => p.key != null)) { for (const p of points) if (p.key === 0 || p.key === 1) out[p.key] = p; return out; }
+  const d = (s, p) => s.active ? Math.hypot((s.x - p.x) * aspect, s.y - p.y) : null;
+  if (points.length === 1) {
+    const p = points[0], d0 = d(sticks[0], p), d1 = d(sticks[1], p);
+    let i;
+    if (d0 == null && d1 == null) i = p.x < 0.5 ? 0 : 1;
+    else if (d0 == null) i = d1 < 0.25 ? 1 : 0;
+    else if (d1 == null) i = d0 < 0.25 ? 0 : 1;
+    else i = d0 <= d1 ? 0 : 1;
+    out[i] = p; return out;
+  }
+  const [p, q] = points, c = (s, pt) => d(s, pt) ?? 0.3;
+  const swap = !sticks[0].active && !sticks[1].active ? p.x > q.x
+    : c(sticks[0], q) + c(sticks[1], p) < c(sticks[0], p) + c(sticks[1], q);
+  out[0] = swap ? q : p; out[1] = swap ? p : q;
+  return out;
+}
+
+function padAt(u, v, maxD) {
+  let best = null, bd = Infinity;
+  for (const p of pads) {
+    const rx = p.r * aspect, ry = p.type === 'kick' ? rx : rx * 0.85;
+    const dd = Math.hypot((u - p.x) * aspect / rx, (v - p.y) / ry);
+    if (dd < bd) { bd = dd; best = p; }
+  }
+  return bd <= maxD ? best : null;
+}
+
+function triggerPad(p, vel, stickIdx, x, y) {
+  ensureAudio();
+  const open = p.id === 'hihat' && shiftDown;
+  kit.play(p.id, vel, { open });
+  p.hitT = performance.now();
+  p.hitColor = stickIdx == null ? '255,255,255' : STICK_RGB[stickIdx];
+  hitCount++;
+  hits.push({ id: p.id, vel: +vel.toFixed(2), stick: stickIdx, t: Math.round(p.hitT) });
+  if (hits.length > 500) hits.shift();
+  if (x != null) splashes.push({ x, y, t: p.hitT, rgb: p.hitColor, size: 0.6 + vel * 0.8 });
+}
+
+function onStickHit(h, s) {
+  const vn = clamp((h.peak - C.vOn) / (C.vOn * 2.2), 0, 1);
+  const vel = 0.3 + 0.7 * Math.pow(vn, 0.8);
+  const p = padAt(h.x, h.y, 1.35);
+  if (p) triggerPad(p, vel, s.i, h.x, h.y);
+  else splashes.push({ x: h.x, y: h.y, t: performance.now(), rgb: '150,160,175', size: 0.5 });
+}
+
+/* ---------------------- ИИ: трекинг рук (MediaPipe) ---------------------- */
+function loadHands() {
+  if (landmarker) return Promise.resolve(landmarker);
+  if (handsLoading) return handsLoading;
+  setStatus('Загружаю нейросеть для рук (≈8 МБ)…');
+  handsLoading = (async () => {
+    const vision = await import(`${MP_URL}/vision_bundle.mjs`);
+    const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_URL}/wasm`);
+    const opts = delegate => ({
+      baseOptions: { modelAssetPath: HAND_MODEL, delegate },
+      runningMode: 'VIDEO', numHands: 2,
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+    });
+    let lm;
+    try { lm = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU')); }
+    catch (e) { console.warn('GPU недоступен, перехожу на CPU', e); lm = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU')); }
+    HAND_CONNECTIONS = vision.HandLandmarker.HAND_CONNECTIONS || [];
+    landmarker = lm;
+    setStatus('Нейросеть готова — играйте!', 1800);
+    return lm;
+  })().catch(e => {
+    console.error(e); handsLoading = null;
+    setStatus('Не удалось загрузить нейросеть. Проверьте интернет или включите режим «Цветные кончики».', 0, true);
+    throw e;
+  });
+  return handsLoading;
+}
+
+function detectHands(now) {
+  if (!landmarker) return [];
+  let res;
+  try { res = landmarker.detectForVideo(video, now); } catch (e) { console.warn(e); return []; }
+  lastHands = (res.landmarks || []).map(lm => lm.map(p => ({ x: 1 - p.x, y: p.y })));
+  // точка палочки — центр костяшек (5, 9, 13, 17): там, где палочка зажата в кулаке
+  return lastHands.map(h => {
+    let x = 0, y = 0; for (const i of [5, 9, 13, 17]) { x += h[i].x; y += h[i].y; }
+    return { x: x / 4, y: y / 4 };
+  });
+}
+
+/* ---------------------- Трекинг цветных кончиков ---------------------- */
+const CP = { w: 0, h: 0 };
+function ensureCP() {
+  const w = 160, h = Math.max(60, Math.round(160 / aspect));
+  if (CP.w === w && CP.h === h) return;
+  CP.w = w; CP.h = h;
+  CP.canvas = document.createElement('canvas'); CP.canvas.width = w; CP.canvas.height = h;
+  CP.ctx = CP.canvas.getContext('2d', { willReadFrequently: true });
+  CP.mask = new Uint8Array(w * h); CP.lab = new Int32Array(w * h); CP.stack = new Int32Array(w * h);
+  CP.thumb = document.createElement('canvas'); CP.thumb.width = w; CP.thumb.height = h;
+  CP.tctx = CP.thumb.getContext('2d'); CP.timg = CP.tctx.createImageData(w, h);
+  CP.data = null;
+}
+function rgb2hsv(r, gg, b) {
+  const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn;
+  let h = 0;
+  if (d) { h = mx === r ? (gg - b) / d : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4; h *= 60; if (h < 0) h += 360; }
+  return { h, s: mx ? d / mx : 0, v: mx / 255 };
+}
+function detectColor() {
+  ensureCP();
+  const { w, h } = CP, x = CP.ctx, n = w * h;
+  x.setTransform(-1, 0, 0, 1, w, 0); x.drawImage(video, 0, 0, w, h); x.setTransform(1, 0, 0, 1, 0, 0);
+  const data = x.getImageData(0, 0, w, h).data; CP.data = data;
+  const cols = settings.colors, mask = CP.mask; mask.fill(0);
+  if (cols.length) {
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      const r = data[j], gg = data[j + 1], b = data[j + 2];
+      const mx = r > gg ? (r > b ? r : b) : (gg > b ? gg : b), mn = r < gg ? (r < b ? r : b) : (gg < b ? gg : b), d = mx - mn;
+      if (mx < 40 || d < 22) continue;
+      const s = d / mx, v = mx / 255;
+      let hh = mx === r ? (gg - b) / d : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4; hh *= 60; if (hh < 0) hh += 360;
+      for (let k = 0; k < cols.length; k++) {
+        const c = cols[k]; if (s < c.sMin || v < c.vMin) continue;
+        let dh = Math.abs(hh - c.h); if (dh > 180) dh = 360 - dh;
+        if (dh <= c.tol) { mask[i] = k + 1; break; }
+      }
+    }
+  }
+  // связные области
+  const lab = CP.lab, st = CP.stack; lab.fill(0);
+  const blobs = []; let nl = 0;
+  for (let i = 0; i < n; i++) {
+    const m = mask[i]; if (!m || lab[i]) continue;
+    nl++; let sp = 0; st[sp++] = i; lab[i] = nl; let area = 0, sx = 0, sy = 0;
+    while (sp) {
+      const p = st[--sp], px = p % w, py = (p / w) | 0; area++; sx += px; sy += py;
+      if (px > 0 && mask[p - 1] === m && !lab[p - 1]) { lab[p - 1] = nl; st[sp++] = p - 1; }
+      if (px < w - 1 && mask[p + 1] === m && !lab[p + 1]) { lab[p + 1] = nl; st[sp++] = p + 1; }
+      if (py > 0 && mask[p - w] === m && !lab[p - w]) { lab[p - w] = nl; st[sp++] = p - w; }
+      if (py < h - 1 && mask[p + w] === m && !lab[p + w]) { lab[p + w] = nl; st[sp++] = p + w; }
+    }
+    if (area >= 3) blobs.push({ k: m - 1, area, x: (sx / area + 0.5) / w, y: (sy / area + 0.5) / h });
+  }
+  // превью маски
+  const ti = CP.timg.data;
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    const m = mask[i];
+    if (m) { const c = cols[m - 1].rgb; ti[j] = c[0]; ti[j + 1] = c[1]; ti[j + 2] = c[2]; ti[j + 3] = 255; }
+    else { const l = (data[j] + data[j + 1] + data[j + 2]) / 12; ti[j] = ti[j + 1] = ti[j + 2] = l; ti[j + 3] = 200; }
+  }
+  CP.tctx.putImageData(CP.timg, 0, 0);
+
+  blobs.sort((a, b) => b.area - a.area);
+  if (cols.length === 2) { // два цвета — у каждой палочки свой
+    const out = [];
+    for (let k = 0; k < 2; k++) { const b = blobs.find(bb => bb.k === k); if (b) out.push({ x: b.x, y: b.y, key: k }); }
+    return out;
+  }
+  if (!blobs.length) return [];
+  const minA = Math.max(3, blobs[0].area * 0.25);
+  return blobs.filter(b => b.area >= minA).slice(0, 2).map(b => ({ x: b.x, y: b.y }));
+}
+function calibrate(u, v) {
+  if (!CP.data) return;
+  const { w, h, data } = CP, cx = Math.floor(u * w), cy = Math.floor(v * h);
+  let best = null, bs = -1;
+  for (let y = cy - 3; y <= cy + 3; y++) for (let x = cx - 3; x <= cx + 3; x++) {
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    const j = (y * w + x) * 4, hsv = rgb2hsv(data[j], data[j + 1], data[j + 2]), sc = hsv.s * hsv.v;
+    if (sc > bs) { bs = sc; best = { ...hsv, rgb: [data[j], data[j + 1], data[j + 2]] }; }
+  }
+  if (!best || best.s < 0.3 || best.v < 0.2) {
+    setStatus('Слишком блёклый цвет. Нужен яркий кончик: изолента, колпачок, маркер — зелёный, розовый, оранжевый.', 4000, true);
+    return;
+  }
+  const col = { h: best.h, s: best.s, v: best.v, rgb: best.rgb, tol: 16, sMin: Math.max(0.3, best.s * 0.55), vMin: Math.max(0.2, best.v * 0.45) };
+  settings.colors = settings.colors.length >= 2 ? [col] : [...settings.colors, col];
+  store.set('colors', settings.colors);
+  sticks.forEach(s => s.reset());
+  renderSwatches();
+  setStatus(settings.colors.length === 1
+    ? 'Цвет запомнен. Если вторая палочка другого цвета — кликните и по ней. Можно играть!'
+    : 'Оба цвета запомнены — у каждой палочки свой. Играйте!', 3500);
+}
+
+/* ---------------------- Главный цикл ---------------------- */
+function process(now) {
+  const pts = settings.mode === 'hands' ? detectHands(now) : detectColor();
+  if (settings.mode !== 'hands') lastHands = [];
+  const asg = assign(pts);
+  for (let i = 0; i < 2; i++) {
+    const s = sticks[i], p = asg[i];
+    const h = p ? s.update(p.x, p.y, now) : s.miss(now);
+    if (h) onStickHit(h, s);
+  }
+  detFrames++;
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (running && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    process(now);
+  }
+  if (now - detFpsT > 500) { detFps = detFrames * 1000 / (now - detFpsT); detFrames = 0; detFpsT = now; updateHud(); }
+  render(now);
+}
+
+/* ---------------------- Отрисовка ---------------------- */
+function render(now) {
+  const W = canvas.width, H = canvas.height;
+  if (!W || !H) return;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (running && video.readyState >= 2) {
+    g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(video, 0, 0, W, H); g.restore();
+    g.fillStyle = 'rgba(6,8,14,0.38)'; g.fillRect(0, 0, W, H);
+  } else {
+    const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#151b27'); gr.addColorStop(1, '#07090d');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  }
+  const order = [...pads].sort((a, b) => a.y - b.y);
+  for (const p of order) {
+    const flash = clamp(1 - (now - p.hitT) / 260, 0, 1);
+    if (p.type === 'drum') drawDrum(p, W, H, flash);
+    else if (p.type === 'kick') drawKick(p, W, H, flash);
+    else drawCymbalPad(p, W, H, flash, now);
+    if (editing) drawEditOutline(p, W, H);
+  }
+  for (const p of order) drawLabel(p, W, H);
+
+  // скелет рук
+  if (lastHands.length && HAND_CONNECTIONS.length) {
+    g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 2 * dpr;
+    for (const hnd of lastHands) {
+      g.beginPath();
+      for (const c of HAND_CONNECTIONS) { const a = hnd[c.start], b = hnd[c.end]; g.moveTo(a.x * W, a.y * H); g.lineTo(b.x * W, b.y * H); }
+      g.stroke();
+    }
+  }
+  // следы и курсоры палочек
+  for (const s of sticks) {
+    if (!s.trail.length || now - s.lastSeen > 400) continue;
+    const fade = clamp(1 - (now - s.lastSeen) / 400, 0, 1);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (let i = 1; i < s.trail.length; i++) {
+      const a = s.trail[i - 1], b = s.trail[i];
+      g.strokeStyle = `rgba(${s.rgb},${(i / s.trail.length) * 0.6 * fade})`; g.lineWidth = (2 + 4 * i / s.trail.length) * dpr;
+      g.beginPath(); g.moveTo(a.x * W, a.y * H); g.lineTo(b.x * W, b.y * H); g.stroke();
+    }
+    const x = s.x * W, y = s.y * H, r = 10 * dpr;
+    g.save(); g.shadowColor = `rgb(${s.rgb})`; g.shadowBlur = 18 * dpr;
+    g.fillStyle = s.striking ? '#ffffff' : `rgba(${s.rgb},${0.9 * fade})`;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.restore();
+    g.strokeStyle = `rgba(255,255,255,${0.8 * fade})`; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
+  }
+  // всплески ударов
+  for (let i = splashes.length - 1; i >= 0; i--) {
+    const sp = splashes[i], k = (now - sp.t) / 380;
+    if (k >= 1) { splashes.splice(i, 1); continue; }
+    g.strokeStyle = `rgba(${sp.rgb},${1 - k})`; g.lineWidth = (4 - 3 * k) * dpr;
+    g.beginPath(); g.arc(sp.x * W, sp.y * H, (14 + 80 * k) * sp.size * dpr, 0, Math.PI * 2); g.stroke();
+  }
+  // превью маски цвета
+  if (running && settings.mode === 'color' && CP.thumb) {
+    const tw = Math.min(200 * dpr, W * 0.22), th = tw * CP.h / CP.w, x = W - tw - 12 * dpr, y = H - th - 12 * dpr;
+    g.globalAlpha = 0.9; g.drawImage(CP.thumb, x, y, tw, th); g.globalAlpha = 1;
+    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1 * dpr; g.strokeRect(x, y, tw, th);
+  }
+}
+
+function drawDrum(p, W, H, flash) {
+  const cx = p.x * W, cy = p.y * H, rx = p.r * W * (1 + 0.05 * flash), ry = rx * 0.42;
+  const depth = rx * (p.id === 'floor' ? 0.6 : p.id === 'snare' ? 0.3 : 0.42);
+  g.save(); g.globalAlpha = 0.6 + 0.4 * flash;
+  const chrome = p.id === 'snare';
+  const sg = g.createLinearGradient(cx - rx, 0, cx + rx, 0);
+  const st = chrome ? ['#3b4250', '#aeb6c4', '#f2f5fa', '#aeb6c4', '#3b4250'] : ['#2b0a12', '#8d1d33', '#d4485f', '#8d1d33', '#2b0a12'];
+  st.forEach((c, i) => sg.addColorStop(i / 4, c));
+  g.fillStyle = sg;
+  g.beginPath(); g.moveTo(cx + rx, cy); g.lineTo(cx + rx, cy + depth); g.ellipse(cx, cy + depth, rx, ry, 0, 0, Math.PI);
+  g.lineTo(cx - rx, cy); g.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true); g.closePath(); g.fill(); // корпус без области пластика
+  g.strokeStyle = 'rgba(235,240,248,0.55)'; g.lineWidth = Math.max(1.5, rx * 0.025);
+  for (const a of [-0.72, -0.25, 0.25, 0.72]) {
+    const lx = cx + rx * a, ly = cy + ry * Math.sqrt(1 - a * a);
+    g.beginPath(); g.moveTo(lx, ly + depth * 0.15); g.lineTo(lx, ly + depth * 0.82); g.stroke();
+  }
+  if (flash > 0) { g.shadowColor = `rgb(${p.hitColor})`; g.shadowBlur = 45 * flash * dpr; }
+  const hg = g.createRadialGradient(cx - rx * 0.25, cy - ry * 0.35, rx * 0.05, cx, cy, rx);
+  hg.addColorStop(0, '#ffffff'); hg.addColorStop(1, '#cfcabd');
+  g.fillStyle = hg; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.fill();
+  g.shadowBlur = 0;
+  if (flash > 0) { g.fillStyle = `rgba(${p.hitColor},${0.5 * flash})`; g.fill(); }
+  g.strokeStyle = '#e9edf3'; g.lineWidth = Math.max(2, rx * 0.06); g.stroke();
+  g.restore();
+}
+
+function drawCymbal(cx, cy, rx, ry, flash, rgb, wob, dark) {
+  g.save(); g.translate(cx, cy); g.rotate(wob);
+  if (flash > 0) { g.shadowColor = `rgb(${rgb})`; g.shadowBlur = 40 * flash * dpr; }
+  const gr = g.createRadialGradient(-rx * 0.15, -ry * 0.4, rx * 0.05, 0, 0, rx);
+  gr.addColorStop(0, dark ? '#d9c38a' : '#fff4c8'); gr.addColorStop(0.45, dark ? '#b38b35' : '#e9bd57'); gr.addColorStop(1, dark ? '#5e400c' : '#8a5f12');
+  g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); g.fill();
+  g.shadowBlur = 0;
+  if (flash > 0) { g.fillStyle = `rgba(${rgb},${0.35 * flash})`; g.fill(); }
+  g.strokeStyle = 'rgba(80,50,8,0.35)'; g.lineWidth = Math.max(1, rx * 0.012);
+  for (const k of [0.32, 0.55, 0.78]) { g.beginPath(); g.ellipse(0, 0, rx * k, ry * k, 0, 0, Math.PI * 2); g.stroke(); }
+  const bg = g.createRadialGradient(0, -ry * 0.1, 1, 0, 0, rx * 0.16);
+  bg.addColorStop(0, '#fff8dc'); bg.addColorStop(1, '#c9962e');
+  g.fillStyle = bg; g.beginPath(); g.ellipse(0, -ry * 0.05, rx * 0.16, ry * 0.22, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = 'rgba(255,240,200,0.55)'; g.lineWidth = Math.max(1, rx * 0.015);
+  g.beginPath(); g.ellipse(0, 0, rx, ry, 0, Math.PI * 1.05, Math.PI * 1.6); g.stroke();
+  g.restore();
+}
+function drawCymbalPad(p, W, H, flash, now) {
+  const cx = p.x * W, cy = p.y * H, rx = p.r * W * (1 + 0.04 * flash), ry = rx * 0.36;
+  const wob = flash * Math.sin((now - p.hitT) / 26) * 0.07;
+  g.save(); g.globalAlpha = 0.32; g.strokeStyle = '#c9ced8'; g.lineWidth = Math.max(2, rx * 0.03);
+  g.beginPath(); g.moveTo(cx, cy + ry * (p.type === 'hihat' ? 1.4 : 1)); g.lineTo(cx, Math.min(H, cy + rx * 1.15)); g.stroke(); g.restore();
+  g.save(); g.globalAlpha = 0.6 + 0.4 * flash;
+  if (p.type === 'hihat') {
+    const open = shiftDown ? ry * 0.9 : ry * 0.45;
+    drawCymbal(cx, cy + open, rx, ry, 0, p.hitColor, 0, true);
+    drawCymbal(cx, cy, rx, ry, flash, p.hitColor, wob * 0.4, false);
+  } else drawCymbal(cx, cy, rx, ry, flash, p.hitColor, wob, false);
+  g.restore();
+}
+function drawKick(p, W, H, flash) {
+  const cx = p.x * W, cy = p.y * H, R = p.r * W * (1 + 0.04 * flash);
+  g.save(); g.globalAlpha = 0.62 + 0.38 * flash;
+  if (flash > 0) { g.shadowColor = `rgb(${p.hitColor})`; g.shadowBlur = 45 * flash * dpr; }
+  const sg = g.createRadialGradient(cx, cy, R * 0.7, cx, cy, R);
+  sg.addColorStop(0, '#8d1d33'); sg.addColorStop(1, '#2b0a12');
+  g.fillStyle = sg; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+  const hg = g.createRadialGradient(cx - R * 0.2, cy - R * 0.25, R * 0.05, cx, cy, R * 0.86);
+  hg.addColorStop(0, '#2a2f3b'); hg.addColorStop(1, '#0d0f14');
+  g.fillStyle = hg; g.beginPath(); g.arc(cx, cy, R * 0.86, 0, Math.PI * 2); g.fill();
+  if (flash > 0) { g.fillStyle = `rgba(${p.hitColor},${0.45 * flash})`; g.fill(); }
+  g.strokeStyle = '#e9edf3'; g.lineWidth = Math.max(2, R * 0.05); g.beginPath(); g.arc(cx, cy, R * 0.88, 0, Math.PI * 2); g.stroke();
+  g.restore();
+}
+function drawLabel(p, W, H) {
+  const cx = p.x * W, cy = p.y * H, rx = p.r * W, fs = Math.max(11 * dpr, W * 0.0125);
+  let y;
+  if (p.type === 'kick') y = cy + fs * 0.35;
+  else if (p.type === 'drum') y = cy + rx * 0.42 + rx * (p.id === 'floor' ? 0.6 : p.id === 'snare' ? 0.3 : 0.42) + fs * 1.25;
+  else y = cy + rx * 0.36 + fs * 1.3 + (p.type === 'hihat' ? rx * 0.2 : 0);
+  g.font = `600 ${fs}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const text = `${p.name} · ${p.key}`;
+  g.lineWidth = 4 * dpr; g.strokeStyle = 'rgba(0,0,0,0.65)'; g.strokeText(text, cx, y);
+  g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(text, cx, y);
+}
+function drawEditOutline(p, W, H) {
+  const cx = p.x * W, cy = p.y * H, rx = p.r * W, ry = p.type === 'kick' ? rx : rx * 0.85;
+  g.save(); g.setLineDash([6 * dpr, 5 * dpr]); g.strokeStyle = 'rgba(56,225,255,0.85)'; g.lineWidth = 1.5 * dpr;
+  g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke(); g.restore();
+}
+
+/* ---------------------- Интерфейс ---------------------- */
+let statusTimer = 0;
+function setStatus(text, ms = 0, err = false) {
+  const el = $('#status'); clearTimeout(statusTimer);
+  el.textContent = text; el.hidden = !text; el.classList.toggle('err', err);
+  if (ms) statusTimer = setTimeout(() => { el.hidden = true; }, ms);
+}
+function updateHint() {
+  const el = $('#hint'); let t = '';
+  if (!running) t = '';
+  else if (editing) t = 'Перетаскивайте барабаны мышью, колёсико — размер. «Готово» — сохранить.';
+  else if (settings.mode === 'color' && !settings.colors.length) t = 'Кликните по яркому кончику палочки на видео — я запомню его цвет.';
+  else if (settings.mode === 'hands' && landmarker && !lastHands.length) t = 'Покажите обе руки в кадре.';
+  el.textContent = t; el.hidden = !t;
+}
+function updateHud() {
+  if (!running) { $('#hud').textContent = ''; return; }
+  const src = settings.mode === 'hands' ? (landmarker ? 'ИИ' : 'ИИ загружается') : 'Цвет';
+  $('#hud').textContent = `${src}: ${Math.round(detFps)} к/с · ударов: ${hitCount}`;
+  updateHint();
+}
+function renderSwatches() {
+  const box = $('#swatches');
+  box.hidden = settings.mode !== 'color';
+  box.innerHTML = '';
+  if (!settings.colors.length) { box.innerHTML = '<span class="lbl">Цвет не выбран — кликните по кончику</span>'; return; }
+  for (const c of settings.colors) { const s = document.createElement('span'); s.className = 'sw'; s.style.background = `rgb(${c.rgb.join(',')})`; box.appendChild(s); }
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = 'сбросить';
+  b.onclick = () => { settings.colors = []; store.set('colors', []); sticks.forEach(s => s.reset()); renderSwatches(); updateHint(); b.blur(); };
+  box.appendChild(b);
+}
+function setMode(m) {
+  settings.mode = m; store.set('mode', m); C = makeCfg();
+  sticks.forEach(s => s.reset()); lastHands = [];
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  canvas.classList.toggle('pick', m === 'color' && !editing);
+  renderSwatches();
+  if (m === 'hands' && running) loadHands().catch(() => {});
+  if (m === 'color' && running) setStatus(settings.colors.length ? '' : 'Кликните по яркому кончику палочки на видео.', 4000);
+  updateHint();
+}
+function setEditing(on) {
+  editing = on;
+  $('#editBtn').textContent = on ? 'Готово' : 'Расставить';
+  $('#editBtn').classList.toggle('on', on);
+  $('#resetBtn').hidden = !on;
+  canvas.classList.toggle('edit', on);
+  canvas.classList.toggle('pick', !on && settings.mode === 'color');
+  if (!on) savePads();
+  updateHint();
+}
+
+function layout() {
+  const r = $('#wrap').getBoundingClientRect(), m = r.width < 600 ? 8 : 16;
+  let w = Math.max(100, r.width - m * 2), h = Math.max(100, r.height - m * 2);
+  if (w / h > aspect) w = h * aspect; else h = w / aspect;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+}
+
+function ensureAudio() {
+  if (!kit.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    let ctx;
+    try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { ctx = new AC(); }
+    kit.init(ctx); kit.setVolume(settings.vol / 100);
+  }
+  if (kit.ctx.state === 'suspended') kit.ctx.resume();
+}
+
+async function start() {
+  const btn = $('#startBtn'), err = $('#startErr');
+  btn.disabled = true; err.hidden = true;
+  ensureAudio();
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    err.textContent = 'Браузер не даёт доступ к камере на этой странице. Откройте её по https:// (или с localhost) в Chrome, Edge, Firefox или Safari.';
+    err.hidden = false; btn.disabled = false; return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
+    });
+  } catch (e) {
+    err.textContent = e && e.name === 'NotAllowedError'
+      ? 'Доступ к камере запрещён. Разрешите камеру в адресной строке браузера и нажмите кнопку ещё раз.'
+      : e && e.name === 'NotFoundError' ? 'Камера не найдена. Подключите камеру и попробуйте снова.'
+      : 'Не удалось включить камеру: ' + (e && (e.message || e.name));
+    err.hidden = false; btn.disabled = false; return;
+  }
+  video.srcObject = stream;
+  await new Promise(res => { if (video.readyState >= 1) res(); else video.onloadedmetadata = () => res(); });
+  try { await video.play(); } catch (e) { console.warn(e); }
+  if (video.videoWidth && video.videoHeight) aspect = video.videoWidth / video.videoHeight;
+  layout();
+  $('#intro').hidden = true;
+  running = true;
+  if (settings.mode === 'hands') loadHands().catch(() => {});
+  else setMode('color');
+  updateHint();
+}
+
+/* ---------------------- Метроном ---------------------- */
+const metro = { on: false, next: 0, beat: 0, timer: 0 };
+function metroTick() {
+  const ctx = kit.ctx;
+  while (metro.next < ctx.currentTime + 0.12) {
+    const accent = metro.beat % 4 === 0, at = metro.next;
+    kit.click(at, accent);
+    const delay = Math.max(0, (at - ctx.currentTime) * 1000);
+    setTimeout(() => { const b = $('#metroBtn'); b.classList.add('beat'); setTimeout(() => b.classList.remove('beat'), 90); }, delay);
+    metro.next += 60 / settings.bpm; metro.beat++;
+  }
+}
+function toggleMetro() {
+  ensureAudio();
+  metro.on = !metro.on;
+  $('#metroBtn').classList.toggle('on', metro.on);
+  clearInterval(metro.timer);
+  if (metro.on) { metro.next = kit.ctx.currentTime + 0.06; metro.beat = 0; metro.timer = setInterval(metroTick, 25); metroTick(); }
+}
+
+/* ---------------------- События ---------------------- */
+const KEYMAP = { Digit1: 'crash', Digit2: 'hihat', Digit3: 'snare', Digit4: 'tom1', Digit5: 'tom2', Digit6: 'floor', Digit7: 'ride', Space: 'kick', KeyB: 'kick',
+  Numpad1: 'crash', Numpad2: 'hihat', Numpad3: 'snare', Numpad4: 'tom1', Numpad5: 'tom2', Numpad6: 'floor', Numpad7: 'ride' };
+window.addEventListener('keydown', e => {
+  if (e.key === 'Shift') shiftDown = true;
+  if (e.target && e.target.id === 'bpm') return;
+  if (e.key === 'Escape' && editing) { setEditing(false); return; }
+  const id = KEYMAP[e.code];
+  if (!id) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  const p = pads.find(pp => pp.id === id);
+  if (p) triggerPad(p, e.shiftKey && id !== 'hihat' ? 1 : 0.85, null);
+});
+window.addEventListener('keyup', e => { if (e.key === 'Shift') shiftDown = false; });
+window.addEventListener('blur', () => { shiftDown = false; });
+
+function norm(e) { const r = canvas.getBoundingClientRect(); return { u: (e.clientX - r.left) / r.width, v: (e.clientY - r.top) / r.height }; }
+canvas.addEventListener('pointerdown', e => {
+  const { u, v } = norm(e);
+  if (editing) {
+    const p = padAt(u, v, 1.1);
+    if (p) { drag = { p, dx: u - p.x, dy: v - p.y }; canvas.setPointerCapture(e.pointerId); }
+    return;
+  }
+  if (running && settings.mode === 'color') { calibrate(u, v); return; }
+  const p = padAt(u, v, 1.0);
+  if (p) triggerPad(p, 0.85, null, u, v);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const { u, v } = norm(e);
+  drag.p.x = clamp(u - drag.dx, 0.03, 0.97); drag.p.y = clamp(v - drag.dy, 0.05, 0.98);
+});
+const endDrag = () => { if (drag) { drag = null; savePads(); } };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e => {
+  if (!editing) return;
+  const { u, v } = norm(e), p = padAt(u, v, 1.2);
+  if (!p) return;
+  e.preventDefault();
+  p.r = clamp(p.r * (e.deltaY > 0 ? 0.94 : 1.06), 0.04, 0.22); savePads();
+}, { passive: false });
+
+document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); b.blur(); }));
+$('#sens').value = settings.sens;
+$('#sens').addEventListener('input', e => { settings.sens = +e.target.value; store.set('sens', settings.sens); C = makeCfg(); });
+$('#vol').value = settings.vol;
+$('#vol').addEventListener('input', e => { settings.vol = +e.target.value; store.set('vol', settings.vol); kit.setVolume(settings.vol / 100); });
+$('#bpm').value = settings.bpm;
+$('#bpm').addEventListener('change', e => { settings.bpm = clamp(+e.target.value || 100, 40, 240); e.target.value = settings.bpm; store.set('bpm', settings.bpm); });
+$('#metroBtn').addEventListener('click', e => { toggleMetro(); e.currentTarget.blur(); });
+$('#editBtn').addEventListener('click', e => { setEditing(!editing); e.currentTarget.blur(); });
+$('#resetBtn').addEventListener('click', e => { store.set('pads', null); pads = loadPads(); e.currentTarget.blur(); });
+$('#startBtn').addEventListener('click', start);
+window.addEventListener('resize', layout);
+
+setMode(settings.mode);
+layout();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
