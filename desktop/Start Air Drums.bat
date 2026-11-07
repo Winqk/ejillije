@@ -12,6 +12,7 @@ echo ============================================================
 echo.
 
 set "PYEXE="
+set "PYURL=https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
 for %%V in (3.12 3.13 3.11 3.10) do (
   if not defined PYEXE (
     for /f "delims=" %%P in ('py -%%V -c "import sys;print(sys.executable)" 2^>nul') do set "PYEXE=%%P"
@@ -20,7 +21,17 @@ for %%V in (3.12 3.13 3.11 3.10) do (
 if not defined PYEXE if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 if not defined PYEXE (
   echo Python is not installed. Installing Python 3.12 with winget...
-  winget install -e --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements
+  winget install -e --id Python.Python.3.12 --source winget --scope user --accept-package-agreements --accept-source-agreements
+  if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+)
+if not defined PYEXE (
+  echo.
+  echo winget did not work. Downloading Python 3.12 from python.org...
+  del "%TEMP%\airdrums-python.exe" >nul 2>&1
+  curl.exe -L --fail -o "%TEMP%\airdrums-python.exe" "%PYURL%"
+  if not exist "%TEMP%\airdrums-python.exe" powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri $env:PYURL -OutFile $env:TEMP\airdrums-python.exe"
+  if exist "%TEMP%\airdrums-python.exe" echo Installing Python, please wait about a minute...
+  if exist "%TEMP%\airdrums-python.exe" "%TEMP%\airdrums-python.exe" /quiet InstallAllUsers=0 Include_launcher=0 PrependPath=0 Include_test=0 Include_doc=0
   if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 )
 if not defined PYEXE goto nopython
