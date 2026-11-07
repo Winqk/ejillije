@@ -15,7 +15,6 @@ import collections
 import json
 import math
 import os
-import random
 import sys
 import threading
 import time
@@ -67,6 +66,12 @@ import cv2  # noqa: E402
 os.environ.setdefault('PYGAME_HIDE_SUPPORT_PROMPT', '1')
 import pygame  # noqa: E402
 
+import kits  # noqa: E402
+import sounds  # noqa: E402
+import ui  # noqa: E402
+from kits import PRESETS, PRESET_BY_ID, SKINS, STICK_RGB  # noqa: E402
+from sounds import INSTRUMENTS, OPEN_HATS  # noqa: E402
+
 
 def clamp(x, a, b):
     return a if x < a else b if x > b else x
@@ -79,13 +84,19 @@ DEFAULTS = {
     'sens': 6,              # 1..10
     'volume': 80,           # 0..100
     'bpm': 100,
+    'beats': 4,             # долей в такте метронома
     'colors': [],
-    'pads': {},
+    'preset': 'rock',       # жанр
+    'skin': None,           # None — стиль жанра
+    'kits': {},             # своя расстановка для каждого жанра
+    'bright_fingers': False,
+    'video': 62,            # яркость видео, %
     'camera': 0,
     'cam_mode': None,       # подбирается автоматически при первом запуске
     'audio_buffer': 256,    # меньше — меньше задержка; если звук трещит — поставьте 512
     'fullscreen': False,
     'shortcut_done': False,
+    'help_seen': False,
 }
 SETTINGS_PATH = os.path.join(data_dir(), 'settings.json')
 
@@ -105,6 +116,10 @@ def load_settings() -> dict:
     s['volume'] = int(clamp(int(s['volume']), 0, 100))
     s['bpm'] = int(clamp(int(s['bpm']), 40, 240))
     s['colors'] = [c for c in s['colors'] if isinstance(c, dict) and 'h' in c][:2]
+    s['beats'] = s['beats'] if s['beats'] in (2, 3, 4, 6) else 4
+    s['video'] = int(clamp(int(s['video']), 10, 100))
+    s['bright_fingers'] = bool(s['bright_fingers'])
+    s['kits'] = s['kits'] if isinstance(s['kits'], dict) else {}
     return s
 
 
@@ -118,255 +133,11 @@ def save_settings(s: dict) -> None:
         log(f'Не удалось сохранить настройки: {e}')
 
 
-# ============================================================ звук: синтез установки
-
-class Synth:
-    """Синтезирует звуки установки один раз при запуске (numpy, без файлов-сэмплов)."""
-    RATIOS = (2, 3, 4.16, 5.43, 6.79, 8.21)
-
-    def __init__(self, sr: int, seed: int = 0):
-        self.sr = sr
-        self.rng = np.random.default_rng(seed)
-        self.ir = self._make_ir(1.7, 3.2)
-
-    # --- помощники
-    def t(self, sec):
-        return np.arange(int(self.sr * sec), dtype=np.float64) / self.sr
-
-    @staticmethod
-    def env(t, attack, decay):  # decay — время спада до −80 дБ, как в веб-версии
-        e = np.exp(-t * 9.21 / decay)
-        if attack > 0:
-            e *= np.clip(t / attack, 0, 1)
-        return e
-
-    def noise(self, n):
-        return self.rng.uniform(-1, 1, n)
-
-    def filt(self, x, hp=None, lp=None, peak=None, order=2):
-        n = len(x)
-        X = np.fft.rfft(x)
-        f = np.maximum(np.fft.rfftfreq(n, 1 / self.sr), 1.0)
-        H = np.ones_like(f)
-        if hp:
-            H /= np.sqrt(1 + (hp / f) ** (2 * order))
-        if lp:
-            H /= np.sqrt(1 + (f / lp) ** (2 * order))
-        if peak:
-            fc, db, w = peak
-            H *= 1 + (10 ** (db / 20) - 1) * np.exp(-0.5 * (np.log2(f / fc) / w) ** 2)
-        return np.fft.irfft(X * H, n)
-
-    def sweep(self, t, f0, f1, tau, drift=0.0):
-        f = f1 * (1 - drift * t / max(t[-1], 1e-3)) + (f0 - f1) * np.exp(-t / tau)
-        return 2 * np.pi * np.cumsum(f) / self.sr
-
-    @staticmethod
-    def tri(ph):
-        return 2 / np.pi * np.arcsin(np.sin(ph))
-
-    def metal(self, t, fund):
-        return sum(np.sign(np.sin(2 * np.pi * fund * r * t)) for r in self.RATIOS) / len(self.RATIOS)
-
-    def _make_ir(self, sec, decay):
-        n = int(self.sr * sec)
-        k = np.arange(n) / n
-        fade = np.clip(np.arange(n) / (self.sr * 0.006), 0, 1)
-        ir = self.rng.uniform(-1, 1, (n, 2)) * ((1 - k) ** decay * fade)[:, None]
-        return ir / np.sqrt((ir ** 2).sum(axis=0))
-
-    def reverb(self, x):
-        n = len(x) + len(self.ir) - 1
-        N = 1 << (n - 1).bit_length()
-        X = np.fft.rfft(x, N)
-        return np.stack([np.fft.irfft(X * np.fft.rfft(self.ir[:, c], N), N)[:n] for c in range(2)], 1)
-
-    # --- инструменты: возвращают (моно-сигнал, посыл на реверб)
-    def kick(self):
-        t = self.t(0.7)
-        body = np.sin(self.sweep(t, 165, 43, 0.028)) * self.env(t, 0.003, 0.55)
-        body = np.tanh(2.4 * body) / np.tanh(2.4)
-        click = self.filt(self.noise(len(t)), hp=2200, lp=4500) * self.env(t, 0.001, 0.025) * 0.32
-        return body + click, 0.06
-
-    def snare(self):
-        t = self.t(0.5)
-        tone = self.tri(self.sweep(t, 205, 168, 0.04)) * self.env(t, 0.001, 0.14) * 0.75
-        tone2 = np.sin(2 * np.pi * 340 * t) * self.env(t, 0.001, 0.07) * 0.28
-        nz = self.filt(self.noise(len(t)), hp=1100, lp=13000, peak=(4500, 5, 0.6)) * self.env(t, 0.001, 0.26) * 0.8
-        return tone + tone2 + nz, 0.25
-
-    def hat(self, open_):
-        d = 0.75 if open_ else 0.075
-        t = self.t(d + 0.1)
-        m = self.filt(self.metal(t, 40), hp=7000, lp=13000, order=2)
-        nz = self.filt(self.noise(len(t)), hp=8000) * 0.35
-        return (m + nz) * self.env(t, 0.0008, d) * (0.85 if open_ else 1.1), 0.12
-
-    def tom(self, f0, decay):
-        t = self.t(decay + 0.15)
-        o = np.sin(self.sweep(t, f0 * 1.6, f0, 0.02, drift=0.1)) * self.env(t, 0.002, decay) * 0.95
-        o2 = self.tri(self.sweep(t, f0 * 2.4, f0 * 1.5, 0.02)) * self.env(t, 0.001, 0.12) * 0.18
-        nz = self.filt(self.noise(len(t)), lp=3000) * self.env(t, 0.001, 0.05) * 0.3
-        return o + o2 + nz, 0.25
-
-    def crash(self):
-        t = self.t(3.0)
-        nz = self.filt(self.noise(len(t)), hp=3000, lp=12500) * self.env(t, 0.002, 2.4) * 0.42
-        m = self.filt(self.metal(t, 57), hp=5500) * self.env(t, 0.001, 1.6) * 0.4
-        tr = self.filt(self.noise(len(t)), hp=3500, lp=7000) * self.env(t, 0.001, 0.06) * 0.55
-        return nz + m + tr, 0.33
-
-    def ride(self):
-        t = self.t(2.0)
-        m = self.filt(self.metal(t, 72), hp=6500, lp=9800, order=3) * self.env(t, 0.001, 1.5) * 1.25
-        nz = self.filt(self.noise(len(t)), hp=9000) * self.env(t, 0.001, 0.9) * 0.16
-        ping = (np.sin(2 * np.pi * 3100 * t) + np.sin(2 * np.pi * 4350 * t)) * self.env(t, 0.001, 0.45) * 0.05
-        return m + nz + ping, 0.23
-
-    def click(self, accent):
-        t = self.t(0.08)
-        return np.sin(2 * np.pi * (1760 if accent else 1175) * t) * self.env(t, 0.001, 0.05)
-
-    # --- сборка
-    PAN = {'kick': 0, 'snare': -0.1, 'hihat': -0.45, 'hihat_open': -0.45, 'tom1': -0.15, 'tom2': 0.15,
-           'floor': 0.4, 'crash': -0.5, 'ride': 0.5}
-    PEAK = {'kick': 0.62, 'snare': 0.55, 'hihat': 0.30, 'hihat_open': 0.32, 'tom1': 0.5, 'tom2': 0.5,
-            'floor': 0.52, 'crash': 0.42, 'ride': 0.34}
-
-    def finish(self, x, pan, send, peak):
-        a = (pan + 1) * math.pi / 4
-        dry = np.stack([x * math.cos(a), x * math.sin(a)], 1) * math.sqrt(2)
-        out = dry
-        if send > 0:
-            wet = self.reverb(x) * (send * 0.55)
-            out = np.zeros_like(wet)
-            out[:len(dry)] += dry
-            out += wet
-        loud = np.nonzero(np.abs(out).max(axis=1) > 2e-4)[0]
-        out = out[:loud[-1] + 1] if len(loud) else out[:1]
-        out *= peak / max(np.abs(out).max(), 1e-9)
-        return out
-
-    def render(self, variants=3) -> dict:
-        makers = {
-            'kick': self.kick, 'snare': self.snare,
-            'hihat': lambda: self.hat(False), 'hihat_open': lambda: self.hat(True),
-            'tom1': lambda: self.tom(215, 0.5), 'tom2': lambda: self.tom(160, 0.62),
-            'floor': lambda: self.tom(102, 0.9), 'crash': self.crash, 'ride': self.ride,
-        }
-        out = {}
-        for k, fn in makers.items():
-            out[k] = []
-            for _ in range(variants):  # несколько вариантов — без эффекта «пулемёта»
-                x, send = fn()
-                out[k].append(self.finish(x, self.PAN[k], send, self.PEAK[k]))
-        for acc in (True, False):
-            x = self.click(acc) * (0.45 if acc else 0.28)
-            out['click_hi' if acc else 'click'] = [np.stack([x, x], 1)]
-        return out
-
-
-class Audio:
-    def __init__(self, buffer: int, volume: float):
-        self.ok = False
-        self.volume = volume
-        self.lock = threading.Lock()
-        self.open_ch = None
-        self.sounds = {}
-        try:
-            pygame.mixer.init(44100, -16, 2, int(buffer), allowedchanges=0)
-            pygame.mixer.set_num_channels(48)
-            sr = pygame.mixer.get_init()[0]
-            t0 = time.perf_counter()
-            raw = Synth(sr).render()
-            for k, vs in raw.items():
-                self.sounds[k] = [pygame.sndarray.make_sound(np.ascontiguousarray((v * 32767).astype(np.int16)))
-                                  for v in vs]
-            self.open_set = set(self.sounds['hihat_open'])
-            self.ok = True
-            log(f'Звук: {sr} Гц, буфер {buffer}, синтез {1000 * (time.perf_counter() - t0):.0f} мс')
-        except Exception as e:  # нет звуковой карты и т.п.
-            log('Звук недоступен: ' + repr(e))
-
-    def play(self, pid: str, vel: float, open_: bool = False):
-        if not self.ok:
-            return
-        with self.lock:
-            key = 'hihat_open' if (pid == 'hihat' and open_) else pid
-            if pid == 'hihat' and self.open_ch is not None:  # любой удар по хай-хэту глушит открытый
-                if self.open_ch.get_busy() and self.open_ch.get_sound() in self.open_set:
-                    self.open_ch.fadeout(40)
-                self.open_ch = None
-            snd = random.choice(self.sounds[key])
-            ch = pygame.mixer.find_channel(True)
-            vol = clamp(vel, 0.05, 1.0) * self.volume ** 1.5
-            ch.set_volume(vol)
-            ch.play(snd)
-            ch.set_volume(vol)
-            if key == 'hihat_open':
-                self.open_ch = ch
-
-    def click(self, accent: bool):
-        if not self.ok:
-            return
-        with self.lock:
-            ch = pygame.mixer.find_channel(True)
-            ch.set_volume(self.volume ** 1.5)
-            ch.play(self.sounds['click_hi' if accent else 'click'][0])
-
-
-# ============================================================ расстановка
-
-PADS_DEFAULT = [
-    {'id': 'crash', 'name': 'Крэш', 'type': 'cymbal', 'x': 0.15, 'y': 0.28, 'r': 0.115, 'key': '1'},
-    {'id': 'hihat', 'name': 'Хай-хэт', 'type': 'hihat', 'x': 0.16, 'y': 0.60, 'r': 0.095, 'key': '2'},
-    {'id': 'snare', 'name': 'Малый', 'type': 'drum', 'x': 0.36, 'y': 0.74, 'r': 0.10, 'key': '3'},
-    {'id': 'tom1', 'name': 'Том 1', 'type': 'drum', 'x': 0.39, 'y': 0.42, 'r': 0.082, 'key': '4'},
-    {'id': 'tom2', 'name': 'Том 2', 'type': 'drum', 'x': 0.61, 'y': 0.42, 'r': 0.082, 'key': '5'},
-    {'id': 'floor', 'name': 'Напольный', 'type': 'drum', 'x': 0.65, 'y': 0.75, 'r': 0.108, 'key': '6'},
-    {'id': 'ride', 'name': 'Райд', 'type': 'cymbal', 'x': 0.85, 'y': 0.34, 'r': 0.125, 'key': '7'},
-    {'id': 'kick', 'name': 'Бочка', 'type': 'kick', 'x': 0.5, 'y': 0.94, 'r': 0.075, 'key': 'Пробел'},
-]
-DRUM_DEPTH = {'floor': 0.6, 'snare': 0.3}
-
-
-def load_pads(saved: dict) -> list:
-    pads = []
-    for d in PADS_DEFAULT:
-        p = dict(d)
-        s = (saved or {}).get(d['id'])
-        if isinstance(s, dict) and all(isinstance(s.get(k), (int, float)) for k in ('x', 'y', 'r')):
-            p.update(x=float(s['x']), y=float(s['y']), r=float(s['r']))
-        p['hitT'] = -1e9
-        p['hitRgb'] = (255, 255, 255)
-        pads.append(p)
-    return pads
-
-
-def pad_distance(p, x, y, aspect):
-    rx = p['r'] * aspect
-    ry = rx if p['type'] == 'kick' else rx * 0.85
-    return math.hypot((x - p['x']) * aspect / rx, (y - p['y']) / ry)
-
-
-def nearest_pad(pads, x, y, aspect, sticks=True):
-    """Ближайший барабан: целиться не нужно. Бочку палочками — только прямым попаданием."""
-    best, bd = None, 1e9
-    for p in pads:
-        d = pad_distance(p, x, y, aspect)
-        if sticks and p['id'] == 'kick' and d > 1.0:
-            continue
-        if d < bd:
-            best, bd = p, d
-    return best, bd
-
 
 # ============================================================ детектор ударов
 
 MODE_CFG = {'hands': {'vOn': 4.0, 'minTravel': 0.22}, 'color': {'vOn': 6.0, 'minTravel': 0.3}}
 COLOR_SCALE = 0.12   # «условный размер» кончика, чтобы пороги совпадали по смыслу с режимом рук
-STICK_RGB = [(56, 225, 255), (255, 95, 162)]
 
 
 def make_cfg(mode, sens):
@@ -488,6 +259,7 @@ def assign(points, sticks, aspect):
     return out
 
 
+
 # ============================================================ трекеры
 
 class HandTracker:
@@ -599,88 +371,6 @@ class ColorTracker:
         best.update(tol=16, sMin=max(0.3, best['s'] * 0.55), vMin=max(0.2, best['v'] * 0.45))
         return best
 
-
-# ============================================================ движок: кадр → удары
-
-class Engine:
-    def __init__(self, settings: dict, pads: list, player=None):
-        self.s = settings
-        self.pads = pads
-        self.player = player
-        self.hands = None
-        self.color = ColorTracker()
-        self.sticks = [Stick(0), Stick(1)]
-        self.aspect = 16 / 9
-        self.events = collections.deque(maxlen=128)
-        self.hits_log = []
-        self.hit_count = 0
-        self.shift = False
-        self.view_hands = []
-        self.fps = 0.0
-        self._frames = 0
-        self._fps_t = time.perf_counter()
-        self._reset = False
-        self.cfg = make_cfg(settings['mode'], settings['sens'])
-        self.det_ms = 0.0
-
-    def refresh_cfg(self):
-        self.cfg = make_cfg(self.s['mode'], self.s['sens'])
-
-    def request_reset(self):
-        self._reset = True
-
-    def process(self, frame, t):
-        if self._reset:
-            self._reset = False
-            for s in self.sticks:
-                s.reset()
-        h, w = frame.shape[:2]
-        self.aspect = w / h
-        t0 = time.perf_counter()
-        hands = []
-        if self.s['mode'] == 'hands':
-            pts, hands = self.hands.process(frame, t) if self.hands else ([], [])
-        else:
-            pts = self.color.process(frame, self.s['colors'])
-        self.det_ms = self.det_ms * 0.9 + (time.perf_counter() - t0) * 100
-        self.view_hands = hands
-        asg = assign(pts, self.sticks, self.aspect)
-        c = self.cfg
-        for i, s in enumerate(self.sticks):
-            p = asg[i]
-            hit = s.update(p['x'], p['y'], t, p.get('scale', COLOR_SCALE), self.aspect, c) if p else s.miss(t, c)
-            if hit:
-                self.on_stick_hit(hit, s, t)
-        self._frames += 1
-        now = time.perf_counter()
-        if now - self._fps_t >= 0.5:
-            self.fps = self._frames / (now - self._fps_t)
-            self._frames, self._fps_t = 0, now
-
-    def on_stick_hit(self, h, s, t):
-        c = self.cfg
-        vn = clamp((h['peak'] - c['vOn']) / (c['vOn'] * 2.2), 0, 1)
-        vel = 0.35 + 0.65 * vn ** 0.8
-        p, d = nearest_pad(self.pads, h['x'], h['y'], self.aspect)
-        if p and d <= 4.0:
-            self.trigger(p, vel, s.i, h['x'], h['y'], t)
-        else:
-            self.events.append(('miss', h['x'], h['y'], time.perf_counter()))
-
-    def trigger(self, p, vel, stick=None, x=None, y=None, t=None):
-        open_ = p['id'] == 'hihat' and self.shift
-        if self.player:
-            self.player(p['id'], vel, open_)
-        now = time.perf_counter()
-        p['hitT'] = now
-        p['hitRgb'] = STICK_RGB[stick] if stick is not None else (255, 255, 255)
-        self.hit_count += 1
-        self.hits_log.append({'id': p['id'], 'vel': round(vel, 2), 'stick': stick,
-                              't': round(t if t is not None else now, 3)})
-        if len(self.hits_log) > 2000:
-            del self.hits_log[:1000]
-        if x is not None:
-            self.events.append(('hit', x, y, now, p['hitRgb'], vel))
 
 
 # ============================================================ камера
@@ -820,146 +510,89 @@ class Camera(threading.Thread):
             return self.seq, self.frame
 
 
-# ============================================================ графика
 
-def lerp(a, b, k):
-    return tuple(int(a[i] + (b[i] - a[i]) * k) for i in range(len(a)))
+# ============================================================ движок: кадр → удары
 
+class Engine:
+    def __init__(self, settings: dict, pads: list, player=None):
+        self.s = settings
+        self.pads = pads
+        self.player = player
+        self.style = 'acoustic'
+        self.hands = None
+        self.color = ColorTracker()
+        self.sticks = [Stick(0), Stick(1)]
+        self.aspect = 16 / 9
+        self.events = collections.deque(maxlen=128)
+        self.hits_log = []
+        self.hit_count = 0
+        self.shift = False
+        self.view_hands = []
+        self.fps = 0.0
+        self._frames = 0
+        self._fps_t = time.perf_counter()
+        self._reset = False
+        self.cfg = make_cfg(settings['mode'], settings['sens'])
+        self.det_ms = 0.0
 
-def grad(stops, k):
-    k = clamp(k, 0, 1) * (len(stops) - 1)
-    i = min(int(k), len(stops) - 2)
-    return lerp(stops[i], stops[i + 1], k - i)
+    def refresh_cfg(self):
+        self.cfg = make_cfg(self.s['mode'], self.s['sens'])
 
+    def request_reset(self):
+        self._reset = True
 
-def ellipse_rect(cx, cy, rx, ry):
-    return pygame.Rect(round(cx - rx), round(cy - ry), max(1, round(2 * rx)), max(1, round(2 * ry)))
-
-
-def radial_ellipse(surf, cx, cy, rx, ry, inner, outer, n=26, shift=(-0.25, -0.35)):
-    for i in range(n, 0, -1):
-        f = i / n
-        ox, oy = shift[0] * rx * (1 - f), shift[1] * ry * (1 - f)
-        pygame.draw.ellipse(surf, lerp(inner, outer, f), ellipse_rect(cx + ox, cy + oy, rx * f, ry * f))
-
-
-class PadArt:
-    """Рисует барабаны один раз (с 2× сглаживанием) и кэширует картинки."""
-    SS = 2
-
-    def __init__(self):
-        self.cache = {}
-
-    def get(self, p, W):
-        rx = max(8, int(p['r'] * W))
-        key = (p['id'], rx)
-        art = self.cache.get(key)
-        if art is None:
-            if len(self.cache) > 64:
-                self.cache.clear()
-            art = self.cache[key] = self._build(p, rx)
-            for rgb in STICK_RGB + [(255, 255, 255)]:  # всё готовим заранее — никаких рывков на первом ударе
-                self.glow(art, rgb)
-                self.tint(art, rgb)
-        return art
-
-    def _build(self, p, rx_px):
-        ss = self.SS
-        rx = rx_px * ss
-        typ = p['type']
-        if typ == 'drum':
-            ry, depth = int(rx * 0.42), int(rx * DRUM_DEPTH.get(p['id'], 0.42))
-        elif typ == 'kick':
-            ry, depth = rx, 0
+    def process(self, frame, t):
+        if self._reset:
+            self._reset = False
+            for s in self.sticks:
+                s.reset()
+        h, w = frame.shape[:2]
+        self.aspect = w / h
+        t0 = time.perf_counter()
+        hands = []
+        if self.s['mode'] == 'hands':
+            pts, hands = self.hands.process(frame, t) if self.hands else ([], [])
         else:
-            ry, depth = int(rx * 0.36), int(rx * 0.4) if typ == 'hihat' else 0
-        pad = int(rx * 0.3) + 8
-        W, H = 2 * rx + 2 * pad, 2 * ry + depth + 2 * pad
-        cx, cy = W // 2, pad + ry
-        s = pygame.Surface((W, H), pygame.SRCALPHA)
-        head = pygame.Surface((W, H), pygame.SRCALPHA)  # форма «пластика» для вспышки
-        if typ == 'drum':
-            chrome = p['id'] == 'snare'
-            stops = ([(59, 66, 80), (174, 182, 196), (242, 245, 250), (174, 182, 196), (59, 66, 80)] if chrome else
-                     [(43, 10, 18), (141, 29, 51), (212, 72, 95), (141, 29, 51), (43, 10, 18)])
-            for x in range(-rx, rx + 1):
-                yy = ry * math.sqrt(max(0.0, 1 - (x / rx) ** 2))
-                pygame.draw.line(s, grad(stops, (x + rx) / (2 * rx)), (cx + x, cy), (cx + x, cy + yy + depth))
-            for a in (-0.72, -0.25, 0.25, 0.72):
-                lx, ly = cx + rx * a, cy + ry * math.sqrt(1 - a * a)
-                pygame.draw.line(s, (225, 230, 240), (lx, ly + depth * 0.15), (lx, ly + depth * 0.82), max(2, rx // 40))
-            radial_ellipse(s, cx, cy, rx, ry, (255, 255, 255), (207, 202, 189))
-            # мишень в центре пластика — сюда и бьём
-            pygame.draw.ellipse(s, (214, 208, 194), ellipse_rect(cx, cy, rx * 0.4, ry * 0.4))
-            pygame.draw.ellipse(s, (176, 170, 156), ellipse_rect(cx, cy, rx * 0.4, ry * 0.4), max(2, rx // 45))
-            pygame.draw.ellipse(s, (150, 144, 130), ellipse_rect(cx, cy, rx * 0.09, ry * 0.09))
-            pygame.draw.ellipse(s, (233, 237, 243), ellipse_rect(cx, cy, rx, ry), max(3, int(rx * 0.06)))
-            self._spot(head, cx, cy, rx, ry)
-        elif typ == 'kick':
-            radial_ellipse(s, cx, cy, rx, rx, (141, 29, 51), (43, 10, 18), shift=(0, 0))
-            radial_ellipse(s, cx, cy, rx * 0.86, rx * 0.86, (42, 47, 59), (13, 15, 20))
-            pygame.draw.circle(s, (233, 237, 243), (cx, cy), int(rx * 0.88), max(3, int(rx * 0.05)))
-            pygame.draw.circle(s, (120, 126, 140), (cx, cy), int(rx * 0.3), max(2, rx // 40))
-            self._spot(head, cx, cy, rx * 0.86, rx * 0.86)
+            pts = self.color.process(frame, self.s['colors'])
+        self.det_ms = self.det_ms * 0.9 + (time.perf_counter() - t0) * 100
+        self.view_hands = hands
+        asg = assign(pts, self.sticks, self.aspect)
+        c = self.cfg
+        for i, s in enumerate(self.sticks):
+            p = asg[i]
+            hit = s.update(p['x'], p['y'], t, p.get('scale', COLOR_SCALE), self.aspect, c) if p else s.miss(t, c)
+            if hit:
+                self.on_stick_hit(hit, s, t)
+        self._frames += 1
+        now = time.perf_counter()
+        if now - self._fps_t >= 0.5:
+            self.fps = self._frames / (now - self._fps_t)
+            self._frames, self._fps_t = 0, now
+
+    def on_stick_hit(self, h, s, t):
+        c = self.cfg
+        vn = clamp((h['peak'] - c['vOn']) / (c['vOn'] * 2.2), 0, 1)
+        vel = 0.35 + 0.65 * vn ** 0.8
+        p, d = kits.nearest_pad(self.pads, h['x'], h['y'], self.aspect, self.style)
+        if p and d <= 4.0:
+            self.trigger(p, vel, s.i, h['x'], h['y'], t)
         else:
-            if typ == 'hihat':
-                self._cymbal(s, cx, cy + ry * 0.45 * 2, rx, ry, dark=True)
-            self._cymbal(s, cx, cy, rx, ry, dark=False)
-            self._spot(head, cx, cy, rx * 0.8, ry * 0.8)
-        size = (W // ss, H // ss)
-        base = pygame.transform.smoothscale(s, size)
-        head = pygame.transform.smoothscale(head, size)
-        return {'base': base, 'head': head, 'anchor': (cx // ss, cy // ss), 'rx': rx_px, 'ry': ry // ss,
-                'depth': depth // ss, 'glow': {}, 'tint': {}}
+            self.events.append(('miss', h['x'], h['y'], time.perf_counter()))
 
-    @staticmethod
-    def _spot(surf, cx, cy, rx, ry, n=24):
-        """Вспышка удара: ярче всего в центре и плавно гаснет к краю."""
-        for i in range(n, 0, -1):
-            f = i / n
-            pygame.draw.ellipse(surf, (255, 255, 255, int(255 * (1 - f) ** 0.7)), ellipse_rect(cx, cy, rx * f, ry * f))
-
-    @staticmethod
-    def _cymbal(s, cx, cy, rx, ry, dark):
-        inner, mid, outer = ((217, 195, 138), (179, 139, 53), (94, 64, 12)) if dark else \
-            ((255, 244, 200), (233, 189, 87), (138, 95, 18))
-        n = 30
-        for i in range(n, 0, -1):
-            f = i / n
-            col = lerp(mid, outer, (f - 0.45) / 0.55) if f > 0.45 else lerp(inner, mid, f / 0.45)
-            pygame.draw.ellipse(s, col, ellipse_rect(cx - 0.15 * rx * (1 - f), cy - 0.4 * ry * (1 - f), rx * f, ry * f))
-        rings = pygame.Surface(s.get_size(), pygame.SRCALPHA)
-        for k in (0.32, 0.55, 0.78):
-            pygame.draw.ellipse(rings, (80, 50, 8, 90), ellipse_rect(cx, cy, rx * k, ry * k), max(2, rx // 90))
-        pygame.draw.arc(rings, (255, 240, 200, 140), ellipse_rect(cx, cy, rx, ry), math.pi * 0.4, math.pi * 0.95,
-                        max(2, rx // 70))
-        s.blit(rings, (0, 0))
-        radial_ellipse(s, cx, cy - ry * 0.05, rx * 0.16, ry * 0.22, (255, 248, 220), (201, 150, 46), n=10, shift=(0, -0.3))
-
-    def glow(self, art, rgb):
-        g = art['glow'].get(rgb)
-        if g is None:
-            base = art['base']
-            pad = max(6, art['rx'] // 3)
-            w, h = base.get_width() + 2 * pad, base.get_height() + 2 * pad
-            g = pygame.Surface((w, h), pygame.SRCALPHA)
-            scaled = pygame.transform.smoothscale(base, (int(base.get_width() * 1.12), int(base.get_height() * 1.25)))
-            scaled.fill((255, 255, 255, 0), special_flags=pygame.BLEND_RGBA_MAX)
-            g.blit(scaled, scaled.get_rect(center=(w // 2, pad + base.get_height() // 2)))
-            # размытие «уменьшить-увеличить»: в десятки раз быстрее гауссова и выглядит так же мягко
-            small = pygame.transform.smoothscale(g, (max(2, w // 10), max(2, h // 10)))
-            g = pygame.transform.smoothscale(small, (w, h))
-            g.fill(rgb + (255,), special_flags=pygame.BLEND_RGBA_MULT)
-            art['glow'][rgb] = g
-        return g
-
-    def tint(self, art, rgb):
-        t = art['tint'].get(rgb)
-        if t is None:
-            t = art['head'].copy()
-            t.fill(rgb + (255,), special_flags=pygame.BLEND_RGBA_MULT)
-            art['tint'][rgb] = t
-        return t
+    def trigger(self, p, vel, stick=None, x=None, y=None, t=None):
+        open_ = self.shift and p['inst'] in OPEN_HATS
+        if self.player:
+            self.player(p['inst'], vel, open_)
+        now = time.perf_counter()
+        p['hitT'] = now
+        p['hitRgb'] = STICK_RGB[stick] if stick is not None else (255, 255, 255)
+        self.hit_count += 1
+        self.hits_log.append({'id': p['inst'], 'vel': round(vel, 2), 'stick': stick,
+                              't': round(t if t is not None else now, 3)})
+        if len(self.hits_log) > 2000:
+            del self.hits_log[:1000]
+        if x is not None:
+            self.events.append(('hit', x, y, now, p['hitRgb'], vel))
 
 
 HELP_LINES = [
@@ -968,38 +601,51 @@ HELP_LINES = [
     ('Чем быстрее взмах, тем громче. Короткого резкого движения кистью достаточно.', False),
     ('', False),
     ('Клавиши', True),
-    ('Пробел — бочка     Shift — открытый хай-хэт     1–7 — барабаны', False),
-    ('Tab — режим: руки (ИИ) / цветные кончики', False),
-    ('+ / − — чувствительность     ↑ / ↓ — громкость', False),
-    ('M — метроном     ← / → — темп', False),
-    ('E — расставить барабаны мышью (колёсико — размер), R — по умолчанию', False),
-    ('F11 — во весь экран     H — эта подсказка     Esc — выход', False),
+    ('Esc — меню: жанры, барабаны, звук и метроном, вид', False),
+    ('1–9 — барабаны     Пробел — бочка     Shift — открытый хай-хэт', False),
+    ('E — расставить барабаны: тянуть — двигать, колёсико — размер, Shift + колёсико — поворот', False),
+    ('P — следующий жанр     M — метроном     Tab — руки / цветные кончики', False),
+    ('+ / − — чувствительность     ↑ / ↓ — громкость     F11 — во весь экран     H — подсказка', False),
 ]
+FONT_NAMES = 'segoeui,arial,helvetica,dejavusans,liberationsans'
 
 
 class App:
     def __init__(self, args):
         self.args = args
         self.s = load_settings()
-        self.pads = load_pads(self.s['pads'])
+        if self.s['preset'] not in PRESET_BY_ID:
+            self.s['preset'] = PRESETS[0]['id']
+        if self.s['skin'] not in SKINS:
+            self.s['skin'] = None
         self._set_dpi_awareness()
         pygame.display.init()
         pygame.font.init()
-        self.audio = Audio(self.s['audio_buffer'], self.s['volume'] / 100) if not args.no_audio else None
-        self.engine = Engine(self.s, self.pads, self.audio.play if self.audio else None)
+        self._fonts = {}
+        self.art = kits.PadArt(self.font)
+        self.ui = ui.UI(self.font)
+        self.menu = ui.Menu(self)
+        self.editor = ui.Editor(self)
+        self.audio = sounds.Audio(self.s['audio_buffer'], self.s['volume'] / 100, log) if not args.no_audio else None
+        pads = self._kit_pads(self.s['preset'])
+        self.engine = Engine(self.s, pads, self.audio.play if self.audio else None)
+        self.engine.style = self.style
+        if self.audio:
+            self.audio.prioritize([p['inst'] for p in pads])
         self.metro_on = False
         self.metro_flash = 0.0
+        self.metro_beat_i = 0
         self.alive = True
         self.status, self.status_err, self.status_until = '', False, 0.0
-        self.show_help = True
-        self.help_until = time.perf_counter() + 12
-        self.editing = False
-        self.drag = None
-        self.art = PadArt()
+        self.show_help = not self.s['help_seen']
+        self.help_until = time.perf_counter() + 20 if self.show_help else 0
         self.splashes = []
         self.frame_seq = -1
         self.frame_surf = None
         self._frame_buf = None
+        self._ov = None
+        self._neon = None
+        self.labels = {}
         self.model_state = 'idle'
 
         sizes = pygame.display.get_desktop_sizes() if hasattr(pygame.display, 'get_desktop_sizes') else [(1600, 900)]
@@ -1016,15 +662,22 @@ class App:
         self.cam_src = args.camera if args.camera is not None else str(self.s['camera'])
         self.camera = Camera(self.cam_src, self.s['cam_mode'])
         self.camera.start()
-        self._ov = None
         self._last_seq, self._last_seq_t, self._restart_t = 0, time.perf_counter(), 0.0
         self.set_status('Включаю камеру…')
-        threading.Thread(target=self._engine_loop, daemon=True).start()
+        self._engine_thread = threading.Thread(target=self._engine_loop, daemon=True)
+        self._engine_thread.start()
         threading.Thread(target=self._metro_loop, daemon=True).start()
         if self.s['mode'] == 'hands':
             self.load_model()
 
     # ---------- служебное
+    def font(self, size, bold=False):
+        key = (int(size), bool(bold))
+        f = self._fonts.get(key)
+        if f is None:
+            f = self._fonts[key] = pygame.font.SysFont(FONT_NAMES, max(8, int(size)), bold=bold)
+        return f
+
     @staticmethod
     def _set_dpi_awareness():
         if os.name == 'nt':
@@ -1043,26 +696,139 @@ class App:
             self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         else:
             self.screen = pygame.display.set_mode(self.win_size, pygame.RESIZABLE)
-        self._fonts()
-
-    def _fonts(self):
-        H = self.screen.get_height()
-        names = 'segoeui,arial,helvetica,dejavusans,liberationsans'
-        self.f_label = pygame.font.SysFont(names, max(13, H // 48), bold=True)
-        self.f_hud = pygame.font.SysFont(names, max(13, H // 54))
-        self.f_status = pygame.font.SysFont(names, max(15, H // 42), bold=True)
-        self.f_help = pygame.font.SysFont(names, max(14, H // 46))
-        self.f_help_b = pygame.font.SysFont(names, max(16, H // 38), bold=True)
-        self.label_cache = {}
+        self.labels.clear()
 
     def set_status(self, text, secs=0.0, err=False):
         self.status, self.status_err = text, err
         self.status_until = time.perf_counter() + secs if secs else 0.0
 
     def save(self):
-        self.s['pads'] = {p['id']: {'x': round(p['x'], 4), 'y': round(p['y'], 4), 'r': round(p['r'], 4)}
-                          for p in self.pads}
         save_settings(self.s)
+
+    # ---------- набор барабанов, пресеты, скины
+    @property
+    def skin_id(self):
+        sk = self.s.get('skin')
+        return sk if sk in SKINS else PRESET_BY_ID[self.s['preset']]['skin']
+
+    @property
+    def style(self):
+        return SKINS[self.skin_id]['style']
+
+    def _kit_pads(self, pid):
+        return kits.pads_from_saved(self.s['kits'].get(pid)) or kits.preset_pads(pid)
+
+    def _set_pads(self, pads):
+        kits.assign_keys(pads)
+        self.engine.pads = pads   # замена списка целиком — безопасно для потока распознавания
+        self.engine.style = self.style
+        self.labels.clear()
+        if self.audio:
+            self.audio.prioritize([p['inst'] for p in pads])
+
+    def apply_preset(self, pid):
+        if pid not in PRESET_BY_ID:
+            return
+        self.s['preset'] = pid
+        self.s['skin'] = None          # у каждого жанра свой стиль
+        self._set_pads(self._kit_pads(pid))
+        self.editor.sel = None
+        self.set_status(f'Жанр: {PRESET_BY_ID[pid]["name"]}', 1.5)
+        self.save()
+
+    def next_preset(self):
+        ids = [p['id'] for p in PRESETS]
+        self.apply_preset(ids[(ids.index(self.s['preset']) + 1) % len(ids)])
+
+    def set_skin(self, sid):
+        self.s['skin'] = sid
+        self.engine.style = self.style
+        self.labels.clear()
+        self.save()
+
+    def save_kit(self):
+        kits.assign_keys(self.engine.pads)
+        self.s['kits'][self.s['preset']] = kits.pads_to_saved(self.engine.pads)
+        self.labels.clear()
+        self.save()
+
+    def reset_kit(self):
+        self.s['kits'].pop(self.s['preset'], None)
+        self._set_pads(kits.preset_pads(self.s['preset']))
+        self.editor.sel = None
+        self.save()
+
+    def add_pad(self, inst):
+        if len(self.engine.pads) >= kits.MAX_PADS:
+            return
+        p = kits.new_pad(inst, 0.5, 0.5, 0.085)
+        self._set_pads(self.engine.pads + [p])
+        self.save_kit()
+        self.editor.start(p['uid'])
+
+    def set_pad_inst(self, uid, inst):
+        for p in self.engine.pads:
+            if p['uid'] == uid:
+                p['inst'] = inst
+                if INSTRUMENTS[inst]['cat'] != 'kick':
+                    p['direct'] = False
+        if self.audio:
+            self.audio.prioritize([inst])
+        self.save_kit()
+
+    def remove_pad(self, uid):
+        if len(self.engine.pads) > 1:
+            self._set_pads([p for p in self.engine.pads if p['uid'] != uid])
+            self.save_kit()
+
+    def audio_preview(self, inst):
+        if self.audio:
+            self.audio.play(inst, 0.8)
+
+    # ---------- настройки
+    def set_volume(self, v):
+        self.s['volume'] = int(clamp(v, 0, 100))
+        if self.audio:
+            self.audio.volume = self.s['volume'] / 100
+        self.save()
+
+    def set_sens(self, v):
+        self.s['sens'] = int(clamp(v, 1, 10))
+        self.engine.refresh_cfg()
+        self.save()
+
+    def set_metro(self, on):
+        self.metro_on = bool(on)
+
+    def set_bpm(self, v):
+        self.s['bpm'] = int(clamp(v, 40, 240))
+        self.save()
+
+    def set_beats(self, n):
+        self.s['beats'] = int(n)
+        self.save()
+
+    def set_option(self, key, value):
+        self.s[key] = value
+        self.save()
+
+    def toggle_fullscreen(self):
+        self.fullscreen = not self.fullscreen
+        self.s['fullscreen'] = self.fullscreen
+        self._set_mode()
+        self.save()
+
+    def set_mode(self, m):
+        self.s['mode'] = m
+        self.engine.refresh_cfg()
+        self.engine.request_reset()
+        if m == 'hands':
+            self.load_model()
+            self.set_status('Отслеживание: руки (ИИ)', 1.5)
+        else:
+            self.set_status('Цветные кончики: кликните по яркому кончику палочки на видео.'
+                            if not self.s['colors'] else 'Отслеживание: цветные кончики', 3)
+        self.save()
 
     def load_model(self):
         if self.model_state in ('loading', 'ready'):
@@ -1093,11 +859,12 @@ class App:
                 self.model_state = 'error'
                 log(traceback.format_exc())
                 self.set_status('Не удалось загрузить нейросеть: проверьте интернет при первом запуске '
-                                'или нажмите Tab для режима «цветные кончики».', 0, True)
+                                'или выберите «Цветные кончики» в меню.', 0, True)
                 log(repr(e))
 
         threading.Thread(target=work, daemon=True).start()
 
+    # ---------- потоки
     def _engine_loop(self):
         last = 0
         while self.alive:
@@ -1126,13 +893,33 @@ class App:
             if nxt == 0.0:
                 nxt = now
             if now >= nxt:
-                self.audio.click(beat % 4 == 0)
+                n = max(1, int(self.s['beats']))
+                self.metro_beat_i = beat % n
+                self.audio.click(self.metro_beat_i == 0)
                 self.metro_flash = now
                 beat += 1
                 nxt += 60 / self.s['bpm']
                 if nxt < now:
                     nxt = now + 60 / self.s['bpm']
             time.sleep(min(0.002, max(0.0, nxt - time.perf_counter())))
+
+    def watch_camera(self):
+        """Запоминает найденный режим камеры и перезапускает камеру, если она перестала присылать кадры."""
+        cam, now = self.camera, time.perf_counter()
+        if cam.chosen and not cam.is_file and self.s.get('cam_mode') != list(cam.chosen):
+            self.s['cam_mode'] = list(cam.chosen)
+            self.save()
+        if cam.seq != self._last_seq:
+            self._last_seq, self._last_seq_t = cam.seq, now
+        elif (cam.seq > 0 and not cam.is_file and not cam.error and now - self._last_seq_t > 3
+              and now - self._restart_t > 10):
+            log('Камера не присылает кадры 3 с — перезапускаю её')
+            self.set_status('Камера зависла — перезапускаю…', 3)
+            cam.alive = False
+            self._restart_t = self._last_seq_t = now
+            self._last_seq = 0
+            self.camera = Camera(self.cam_src, self.s['cam_mode'])
+            self.camera.start()
 
     # ---------- геометрия сцены
     def stage(self):
@@ -1153,136 +940,118 @@ class App:
             self.alive = False
         elif ev.type == pygame.VIDEORESIZE and not self.fullscreen:
             self.win_size = (max(640, ev.w), max(400, ev.h))
-            self._fonts()
+            self.labels.clear()
         elif ev.type == pygame.KEYDOWN:
             self.on_key(ev)
-        elif ev.type == pygame.MOUSEBUTTONDOWN:
-            self.on_mouse_down(ev)
-        elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
-            if self.drag:
-                self.drag = None
-                self.save()
-        elif ev.type == pygame.MOUSEMOTION and self.drag:
-            u, v = self.to_norm(ev.pos)
-            p, dx, dy = self.drag
-            p['x'], p['y'] = clamp(u - dx, 0.03, 0.97), clamp(v - dy, 0.05, 0.98)
-        elif ev.type == pygame.MOUSEWHEEL and self.editing:
-            u, v = self.to_norm(pygame.mouse.get_pos())
-            p, d = nearest_pad(self.pads, u, v, self.engine.aspect, sticks=False)
-            if p and d < 1.3:
-                p['r'] = clamp(p['r'] * (1.06 if ev.y > 0 else 0.94), 0.04, 0.22)
-                self.save()
 
-    KEY_PADS = {pygame.K_1: 'crash', pygame.K_2: 'hihat', pygame.K_3: 'snare', pygame.K_4: 'tom1',
-                pygame.K_5: 'tom2', pygame.K_6: 'floor', pygame.K_7: 'ride', pygame.K_SPACE: 'kick', pygame.K_b: 'kick',
-                pygame.K_KP1: 'crash', pygame.K_KP2: 'hihat', pygame.K_KP3: 'snare', pygame.K_KP4: 'tom1',
-                pygame.K_KP5: 'tom2', pygame.K_KP6: 'floor', pygame.K_KP7: 'ride', pygame.K_KP0: 'kick'}
+    DIGITS = {getattr(pygame, f'K_{i}'): str(i) for i in range(1, 10)}
+    DIGITS.update({getattr(pygame, f'K_KP{i}'): str(i) for i in range(1, 10)})
 
     def on_key(self, ev):
         k = ev.key
         self.engine.shift = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
-        if k in self.KEY_PADS:
-            p = next(pp for pp in self.pads if pp['id'] == self.KEY_PADS[k])
-            self.engine.trigger(p, 0.9)
+        if self.show_help and k not in (pygame.K_h, pygame.K_F1):
+            self.hide_help()
+            if k == pygame.K_ESCAPE:
+                return
+        # барабаны с клавиатуры работают всегда — даже в меню, чтобы проверять звук
+        if k in self.DIGITS:
+            p = next((pp for pp in self.engine.pads if pp['key'] == self.DIGITS[k]), None)
+            if p:
+                self.engine.trigger(p, 0.9)
+            return
+        if k in (pygame.K_SPACE, pygame.K_b, pygame.K_KP0):
+            p = kits.kick_pad(self.engine.pads)
+            if p:
+                self.engine.trigger(p, 0.9)
             return
         if k == pygame.K_ESCAPE:
-            if self.editing:
-                self.editing = False
-                self.save()
-            elif self.show_help:
-                self.show_help = False
+            if self.menu.open:
+                if self.menu.picker:
+                    self.menu.picker = None
+                else:
+                    self.menu.close()
+            elif self.editor.active:
+                self.editor.stop()
             else:
-                self.alive = False
-        elif k in (pygame.K_h, pygame.K_F1):
+                self.menu.show()
+            return
+        if k in (pygame.K_F11,) or (k == pygame.K_f and not self.menu.open):
+            self.toggle_fullscreen()
+            return
+        if self.menu.open:
+            return
+        if self.editor.active and self.editor.key(ev):
+            return
+        if k in (pygame.K_h, pygame.K_F1):
             self.show_help = not self.show_help
             self.help_until = 0
-        elif k in (pygame.K_F11, pygame.K_f):
-            self.fullscreen = not self.fullscreen
-            self.s['fullscreen'] = self.fullscreen
-            self._set_mode()
-            self.save()
         elif k == pygame.K_TAB:
             self.set_mode('color' if self.s['mode'] == 'hands' else 'hands')
         elif k in (pygame.K_PLUS, pygame.K_EQUALS, pygame.K_KP_PLUS):
-            self.change_sens(+1)
+            self.set_sens(self.s['sens'] + 1)
+            self.set_status(f'Чувствительность: {self.s["sens"]} из 10', 1.2)
         elif k in (pygame.K_MINUS, pygame.K_KP_MINUS):
-            self.change_sens(-1)
+            self.set_sens(self.s['sens'] - 1)
+            self.set_status(f'Чувствительность: {self.s["sens"]} из 10', 1.2)
         elif k in (pygame.K_UP, pygame.K_DOWN):
-            self.s['volume'] = int(clamp(self.s['volume'] + (5 if k == pygame.K_UP else -5), 0, 100))
-            if self.audio:
-                self.audio.volume = self.s['volume'] / 100
+            self.set_volume(self.s['volume'] + (5 if k == pygame.K_UP else -5))
             self.set_status(f'Громкость: {self.s["volume"]}%', 1.2)
-            self.save()
         elif k == pygame.K_m:
-            self.metro_on = not self.metro_on
+            self.set_metro(not self.metro_on)
             self.set_status(f'Метроном {"включён" if self.metro_on else "выключен"}: {self.s["bpm"]} BPM', 1.5)
         elif k in (pygame.K_LEFT, pygame.K_RIGHT):
-            self.s['bpm'] = int(clamp(self.s['bpm'] + (5 if k == pygame.K_RIGHT else -5), 40, 240))
+            self.set_bpm(self.s['bpm'] + (5 if k == pygame.K_RIGHT else -5))
             self.set_status(f'Темп: {self.s["bpm"]} BPM', 1.2)
-            self.save()
         elif k == pygame.K_e:
-            self.editing = not self.editing
-            if not self.editing:
-                self.save()
-        elif k == pygame.K_r and self.editing:
-            self.s['pads'] = {}
-            fresh = load_pads({})
-            for p, f in zip(self.pads, fresh):
-                p.update(x=f['x'], y=f['y'], r=f['r'])
+            if self.editor.active:
+                self.editor.stop()
+            else:
+                self.editor.start()
+        elif k == pygame.K_p:
+            self.next_preset()
+
+    def hide_help(self):
+        self.show_help, self.help_until = False, 0
+        if not self.s['help_seen']:
+            self.s['help_seen'] = True
             self.save()
 
-    def change_sens(self, d):
-        self.s['sens'] = int(clamp(self.s['sens'] + d, 1, 10))
-        self.engine.refresh_cfg()
-        self.set_status(f'Чувствительность: {self.s["sens"]} из 10', 1.2)
-        self.save()
-
-    def set_mode(self, m):
-        self.s['mode'] = m
-        self.engine.refresh_cfg()
-        self.engine.request_reset()
-        if m == 'hands':
-            self.load_model()
-            self.set_status('Режим: руки (ИИ)', 1.5)
-        else:
-            self.set_status('Режим: цветные кончики. Кликните по яркому кончику палочки на видео.'
-                            if not self.s['colors'] else 'Режим: цветные кончики', 3)
-        self.save()
-
-    def on_mouse_down(self, ev):
-        if self.show_help:
-            self.show_help = False
-        u, v = self.to_norm(ev.pos)
-        if self.editing and ev.button == 1:
-            p, d = nearest_pad(self.pads, u, v, self.engine.aspect, sticks=False)
-            if p and d < 1.2:
-                self.drag = (p, u - p['x'], v - p['y'])
+    def scene_input(self):
+        ui_ = self.ui
+        if self.menu.open:
             return
-        if self.s['mode'] == 'color':
-            if ev.button == 3:
-                self.s['colors'] = []
-                self.engine.request_reset()
-                self.set_status('Цвета сброшены. Кликните по кончику палочки.', 2.5)
-                self.save()
-            elif ev.button == 1 and 0 <= u <= 1 and 0 <= v <= 1:
+        st = self.stage()
+        if self.editor.active:
+            self.editor.scene(ui_, st)
+            return
+        if ui_.click and not ui_.consumed:
+            u, v = self.to_norm(ui_.click)
+            if self.s['mode'] == 'color' and 0 <= u <= 1 and 0 <= v <= 1:
                 col = self.engine.color.calibrate(u, v)
                 if not col:
                     self.set_status('Слишком блёклый цвет. Нужен яркий кончик: изолента, колпачок, маркер.', 3.5, True)
-                    return
-                self.s['colors'] = [col] if len(self.s['colors']) >= 2 else self.s['colors'] + [col]
-                self.engine.request_reset()
-                self.set_status('Цвет запомнен. Палочка другого цвета? Кликните и по ней.' if len(self.s['colors']) == 1
-                                else 'Оба цвета запомнены — играйте!', 3)
-                self.save()
-            return
-        if ev.button == 1:
-            p, d = nearest_pad(self.pads, u, v, self.engine.aspect, sticks=False)
-            if p and d < 1.0:
-                self.engine.trigger(p, 0.85, None, u, v)
+                else:
+                    self.s['colors'] = [col] if len(self.s['colors']) >= 2 else self.s['colors'] + [col]
+                    self.engine.request_reset()
+                    self.set_status('Цвет запомнен. Палочка другого цвета? Кликните и по ней.'
+                                    if len(self.s['colors']) == 1 else 'Оба цвета запомнены — играйте!', 3)
+                    self.save()
+            else:
+                p, d = kits.nearest_pad(self.engine.pads, u, v, self.engine.aspect, self.style, sticks=False)
+                if p and d < 1.0:
+                    self.engine.trigger(p, 0.85, None, u, v)
+        if ui_.rclick and self.s['mode'] == 'color':
+            self.s['colors'] = []
+            self.engine.request_reset()
+            self.set_status('Цвета сброшены. Кликните по кончику палочки.', 2.5)
+            self.save()
 
     # ---------- отрисовка
     def draw(self):
         scr = self.screen
+        ui_ = self.ui
+        S = ui_.S
         scr.fill((7, 9, 13))
         st = self.stage()
         now = time.perf_counter()
@@ -1290,8 +1059,8 @@ class App:
         if frame is not None and seq != self.frame_seq:
             self.frame_seq = seq
             fh, fw = frame.shape[:2]
-            img = cv2.convertScaleAbs(frame, alpha=0.62)
-            if st.w < fw:  # окно меньше кадра — уменьшаем качественно (это дёшево)
+            img = cv2.convertScaleAbs(frame, alpha=self.s['video'] / 100)
+            if st.w < fw:
                 img = cv2.resize(img, st.size, interpolation=cv2.INTER_AREA)
             self._frame_buf = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             bh, bw = self._frame_buf.shape[:2]
@@ -1300,54 +1069,45 @@ class App:
         if self.frame_surf is not None and self.frame_surf.get_size() == st.size:
             scr.blit(self.frame_surf, st.topleft)
         else:
-            pygame.draw.rect(scr, (20, 26, 38), st)
+            top, bot = SKINS[self.skin_id]['bg']
+            pygame.draw.rect(scr, bot, st)
 
         W, H = st.w, st.h
-        order = sorted(self.pads, key=lambda p: p['y'])
-        for p in order:  # стойки тарелок
-            if p['type'] in ('cymbal', 'hihat'):
-                art = self.art.get(p, W)
-                cx, cy = st.x + p['x'] * W, st.y + p['y'] * H
-                pygame.draw.line(scr, (95, 100, 110), (cx, cy + art['ry'] + art['depth']),
-                                 (cx, min(st.bottom, cy + art['rx'] * 1.15)), max(2, W // 500))
+        skin, style = self.skin_id, self.style
+        pads = self.engine.pads
+        order = sorted(pads, key=lambda p: p['y'])
+        if style == 'acoustic':  # стойки тарелок
+            for p in order:
+                if INSTRUMENTS[p['inst']]['type'] in ('cymbal', 'hihat') and not p['direct']:
+                    art = self.art.get(skin, p['inst'], p['r'] * W, p['rot'])
+                    cx, cy = st.x + p['x'] * W, st.y + p['y'] * H
+                    pygame.draw.line(scr, (95, 100, 110), (cx, cy + art['below']),
+                                     (cx, min(st.bottom, cy + art['rx'] * 1.15 + art['below'])), max(2, W // 500))
         for p in order:
-            art = self.art.get(p, W)
+            art = self.art.get(skin, p['inst'], p['r'] * W, p['rot'])
             flash = clamp(1 - (now - p['hitT']) / 0.26, 0, 1)
             ax, ay = art['anchor']
-            pos = (round(st.x + p['x'] * W - ax), round(st.y + p['y'] * H - ay))
-            if flash > 0:
-                g = self.art.glow(art, p['hitRgb'])
-                g.set_alpha(int(255 * flash))
-                scr.blit(g, g.get_rect(center=(pos[0] + art['base'].get_width() // 2,
-                                               pos[1] + art['base'].get_height() // 2)))
+            bob = -math.sin((now - p['hitT']) * 30) * S(4) * flash if INSTRUMENTS[p['inst']]['type'] in ('cymbal', 'hihat') else 0
+            pos = (round(st.x + p['x'] * W - ax), round(st.y + p['y'] * H - ay + bob))
             base = art['base']
-            base.set_alpha(int(175 + 80 * flash))
-            if p['type'] in ('cymbal', 'hihat') and flash > 0:
-                ang = math.sin((now - p['hitT']) * 38) * 4 * flash
-                rot = pygame.transform.rotate(base, ang)
-                scr.blit(rot, rot.get_rect(center=(pos[0] + base.get_width() // 2, pos[1] + base.get_height() // 2)))
-            else:
-                scr.blit(base, pos)
             if flash > 0:
-                t = self.art.tint(art, p['hitRgb'])
+                g = art['glow'][p['hitRgb']]
+                g.set_alpha(int(255 * flash))
+                scr.blit(g, g.get_rect(center=(pos[0] + base.get_width() / 2, pos[1] + base.get_height() / 2)))
+            base.set_alpha(int(185 + 70 * flash))
+            scr.blit(base, pos)
+            if flash > 0:
+                t = art['tint'][p['hitRgb']]
                 t.set_alpha(int(255 * flash))
                 scr.blit(t, pos)
-            if self.editing:
-                rx = art['rx']
-                ry = rx if p['type'] == 'kick' else rx * 0.85
-                pygame.draw.ellipse(scr, (56, 225, 255), ellipse_rect(st.x + p['x'] * W, st.y + p['y'] * H, rx, ry), 2)
         for p in order:
-            self.draw_label(p, st)
+            self.draw_label(p, st, skin)
 
         if self._ov is None or self._ov.get_size() != st.size:
             self._ov = pygame.Surface(st.size, pygame.SRCALPHA)
         ov = self._ov
         ov.fill((0, 0, 0, 0))
-        hands = self.engine.view_hands
-        conns = self.engine.hands.connections if self.engine.hands else []
-        for hnd in hands:
-            for a, b in conns:
-                pygame.draw.line(ov, (255, 255, 255, 70), (hnd[a][0] * W, hnd[a][1] * H), (hnd[b][0] * W, hnd[b][1] * H), 2)
+        self.draw_hands(ov, st)
         for s in self.engine.sticks:
             if not s.active or now - s.last_seen > 0.4 or not s.trail:
                 continue
@@ -1378,31 +1138,75 @@ class App:
 
         if self.s['mode'] == 'color' and self.engine.color.mask is not None:
             self.draw_mask(st)
+        if self.editor.active:
+            self.editor.draw_overlay(scr, st)
         self.draw_hud(st, now)
+        if self.editor.active and not self.menu.open:
+            self.editor.toolbar(scr, ui_)
         if self.show_help:
             self.draw_help()
+            if ui_.click and not self.menu.open:
+                self.hide_help()
+                ui_.consumed = True
+        if self.menu.open:
+            self.menu.draw(scr, ui_)
 
-    def draw_label(self, p, st):
+    def draw_hands(self, ov, st):
+        hands = self.engine.view_hands
+        if not hands or not self.engine.hands:
+            return
         W, H = st.w, st.h
-        key = (p['id'], self.f_label.get_height())
-        surf = self.label_cache.get(key)
+        conns = self.engine.hands.connections
+        if not self.s['bright_fingers']:
+            for hnd in hands:
+                for a, b in conns:
+                    pygame.draw.line(ov, (255, 255, 255, 70), (hnd[a][0] * W, hnd[a][1] * H), (hnd[b][0] * W, hnd[b][1] * H), 2)
+            return
+        # «яркие пальцы»: неоновый скелет рук, цвет — как у палочки этой руки
+        S = self.ui.S
+        if self._neon is None or self._neon.get_size() != st.size:
+            self._neon = pygame.Surface(st.size, pygame.SRCALPHA)
+        neon = self._neon
+        neon.fill((0, 0, 0, 0))
+        for hnd in hands:
+            kx = sum(hnd[i][0] for i in (5, 9, 13, 17)) / 4
+            ky = sum(hnd[i][1] for i in (5, 9, 13, 17)) / 4
+            act = [s for s in self.engine.sticks if s.active]
+            col = min(act, key=lambda s: (s.x - kx) ** 2 + (s.y - ky) ** 2).rgb if act else STICK_RGB[0]
+            P = [(x * W, y * H) for x, y in hnd]
+            for a, b in conns:
+                pygame.draw.line(neon, col + (255,), P[a], P[b], max(6, S(12)))
+            for i in (4, 8, 12, 16, 20):
+                pygame.draw.circle(neon, col + (255,), P[i], max(8, S(16)))
+            for a, b in conns:
+                pygame.draw.line(ov, kits.bright(col, 0.45) + (255,), P[a], P[b], max(2, S(4)))
+            for i, pt in enumerate(P):
+                big = i in (4, 8, 12, 16, 20)
+                pygame.draw.circle(ov, (255, 255, 255, 255), pt, max(3, S(7 if big else 4)))
+        self.screen.blit(kits.soft_blur(neon, 6), st.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+
+    def draw_label(self, p, st, skin):
+        W, H = st.w, st.h
+        info = INSTRUMENTS[p['inst']]
+        size = max(13, H // 50)
+        text = f'{info["name"]} · {p["key"]}' if p['key'] else info['name']
+        key = (text, size)
+        surf = self.labels.get(key)
         if surf is None:
-            text = f'{p["name"]} · {p["key"]}'
-            fg = self.f_label.render(text, True, (255, 255, 255))
-            bg = self.f_label.render(text, True, (0, 0, 0))
+            f = self.font(size, True)
+            fg = f.render(text, True, (255, 255, 255))
+            bg = f.render(text, True, (0, 0, 0))
             surf = pygame.Surface((fg.get_width() + 4, fg.get_height() + 4), pygame.SRCALPHA)
             for dx, dy in ((0, 0), (4, 0), (0, 4), (4, 4), (2, 0), (0, 2), (4, 2), (2, 4)):
                 surf.blit(bg, (dx, dy))
             surf.blit(fg, (2, 2))
-            self.label_cache[key] = surf
-        art = self.art.get(p, W)
+            self.labels[key] = surf
+        art = self.art.get(skin, p['inst'], p['r'] * W, p['rot'])
         cx, cy = st.x + p['x'] * W, st.y + p['y'] * H
-        if p['type'] == 'kick':
-            y = cy
-        elif p['type'] == 'drum':
-            y = cy + art['ry'] + art['depth'] + surf.get_height() * 0.75
+        if info['type'] == 'kick' and self.style != 'mpc':
+            y = cy + art['rx'] * 0.08   # бочка стоит у края кадра — подпись внутри неё
         else:
-            y = cy + art['ry'] + art['depth'] * (0.9 if p['type'] == 'hihat' else 0) + surf.get_height() * 0.8
+            y = cy + art['below'] + surf.get_height() * 0.8
         self.screen.blit(surf, surf.get_rect(center=(cx, y)))
 
     def draw_mask(self, st):
@@ -1418,36 +1222,38 @@ class App:
         th = int(tw * m.shape[0] / m.shape[1])
         img = np.ascontiguousarray(cv2.resize(rgb, (tw, th), interpolation=cv2.INTER_NEAREST))
         surf = pygame.image.frombuffer(img.data, (tw, th), 'RGB').copy()
-        r = pygame.Rect(st.right - tw - 12, st.bottom - th - 12, tw, th)
+        r = pygame.Rect(st.right - tw - 12, st.bottom - th - 96, tw, th)
         self.screen.blit(surf, r)
         pygame.draw.rect(self.screen, (120, 130, 145), r, 1)
 
-    def text(self, font, s, color, pos, anchor='topleft'):
-        surf = font.render(s, True, color)
-        r = surf.get_rect(**{anchor: pos})
-        self.screen.blit(surf, r)
-        return r
-
     def draw_hud(self, st, now):
         e = self.engine
-        mode = 'Руки (ИИ)' if self.s['mode'] == 'hands' else 'Цветные кончики'
-        if self.s['mode'] == 'hands' and self.model_state != 'ready':
-            mode += ' — загрузка'
+        ui_ = self.ui
+        S = ui_.S
         cam = self.camera
-        cam_txt = f'камера {cam.info} · {cam.fps:.0f} к/с' if cam.info else 'камера…'
-        lines = [f'{mode} · {cam_txt} · ИИ {e.fps:.0f} к/с · удары: {e.hit_count}',
-                 f'Чувствительность {self.s["sens"]}/10 · громкость {self.s["volume"]}% · '
-                 f'метроном {"вкл" if self.metro_on else "выкл"} ({self.s["bpm"]})   H — помощь']
-        y = st.y + 10
-        for i, ln in enumerate(lines):
-            surf = self.f_hud.render(ln, True, (230, 236, 245) if i == 0 else (165, 176, 192))
-            bg = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
-            bg.fill((8, 11, 17, 170))
-            self.screen.blit(bg, (st.x + 10, y))
-            self.screen.blit(surf, (st.x + 18, y + 3))
-            y += bg.get_height() + 2
+        mode = 'руки (ИИ)' if self.s['mode'] == 'hands' else 'цветные кончики'
+        if self.s['mode'] == 'hands' and self.model_state != 'ready':
+            mode += ', загрузка'
+        cam_txt = f'камера {cam.fps:.0f} к/с' if cam.info else 'камера…'
+        lines = [(f'{PRESET_BY_ID[self.s["preset"]]["name"]} · {mode} · {cam_txt} · ИИ {e.fps:.0f} к/с · удары: {e.hit_count}', C_TEXT),
+                 (f'Чувствительность {self.s["sens"]}/10 · громкость {self.s["volume"]}% · '
+                  f'метроном {"вкл" if self.metro_on else "выкл"} ({self.s["bpm"]})   H — помощь', C_HINT)]
+        y = st.y + S(12)
+        for txt, col in lines:
+            surf = ui_.tsurf(txt, 13, col)
+            bg = pygame.Surface((surf.get_width() + S(18), surf.get_height() + S(8)), pygame.SRCALPHA)
+            bg.fill((8, 11, 17, 175))
+            self.screen.blit(bg, (st.x + S(12), y))
+            self.screen.blit(surf, (st.x + S(21), y + S(4)))
+            y += bg.get_height() + S(3)
+        # кнопка меню
+        mb = pygame.Rect(st.right - S(176), st.y + S(12), S(162), S(42))
+        if not self.menu.open:
+            if ui_.button(self.screen, mb, 'Меню · Esc', icon='menu', size=15):
+                self.menu.show()
         if self.metro_on and now - self.metro_flash < 0.09:
-            pygame.draw.circle(self.screen, (242, 193, 78), (st.right - 24, st.y + 24), 9)
+            pygame.draw.circle(self.screen, (242, 193, 78) if self.metro_beat_i == 0 else (56, 225, 255),
+                               (mb.x - S(20), mb.centery), S(8))
 
         msg, err = self.status, self.status_err
         if self.status_until and now > self.status_until:
@@ -1458,63 +1264,47 @@ class App:
             elif self.camera.seq == 0:
                 msg = 'Подбираю режим камеры для 60 к/с (только при первом запуске)…' if self.camera.probing \
                     else 'Включаю камеру…'
-            elif self.editing:
-                msg = 'Перетаскивайте барабаны мышью, колёсико — размер. E — готово, R — по умолчанию.'
+            elif self.editor.active:
+                msg = ''
             elif self.s['mode'] == 'color' and not self.s['colors']:
                 msg = 'Кликните по яркому кончику палочки на видео — я запомню его цвет.'
             elif self.s['mode'] == 'hands' and self.model_state == 'ready' and not e.view_hands:
                 msg = 'Покажите руки в кадре.'
         if msg:
-            surf = self.f_status.render(msg, True, (255, 210, 204) if err else (240, 244, 250))
+            surf = ui_.tsurf(msg, 16, (255, 210, 204) if err else (240, 244, 250), True)
             if surf.get_width() > st.w - 40:
                 surf = pygame.transform.smoothscale(surf, (st.w - 40, int(surf.get_height() * (st.w - 40) / surf.get_width())))
-            bg = pygame.Surface((surf.get_width() + 32, surf.get_height() + 14), pygame.SRCALPHA)
+            bg = pygame.Surface((surf.get_width() + S(32), surf.get_height() + S(14)), pygame.SRCALPHA)
             bg.fill((10, 13, 19, 215))
-            r = bg.get_rect(midbottom=(st.centerx, st.bottom - 16))
+            r = bg.get_rect(midtop=(st.centerx, st.y + S(70)))
             self.screen.blit(bg, r)
             self.screen.blit(surf, surf.get_rect(center=r.center))
 
     def draw_help(self):
+        ui_ = self.ui
+        S = ui_.S
         sw, sh = self.screen.get_size()
-        rows = []
-        for s, bold in HELP_LINES:
-            rows.append((self.f_help_b if bold else self.f_help).render(s, True, (240, 244, 250) if bold else (205, 214, 226)) if s else None)
-        lh = self.f_help.get_height()
-        w = max(r.get_width() for r in rows if r) + 64
-        h = sum((r.get_height() + 6) if r else lh // 2 for r in rows) + 64 + lh
-        panel = pygame.Surface((w, h), pygame.SRCALPHA)
-        panel.fill((10, 13, 19, 228))
-        pygame.draw.rect(panel, (60, 70, 86, 255), panel.get_rect(), 1, border_radius=12)
-        y = 32
+        rows = [ui_.tsurf(s, 19 if bold else 15, C_TEXT if bold else (205, 214, 226), bold) if s else None
+                for s, bold in HELP_LINES]
+        lh = ui_.font(15).get_height()
+        w = max(r.get_width() for r in rows if r) + S(72)
+        h = sum((r.get_height() + S(7)) if r else lh // 2 for r in rows) + S(72) + lh
+        panel = pygame.Rect(0, 0, w, h)
+        panel.center = (sw // 2, sh // 2)
+        self.screen.blit(ui_.shadow(w, h, S(18), S(30)), (panel.x - S(30), panel.y - S(30)))
+        pygame.draw.rect(self.screen, (15, 19, 28), panel, border_radius=S(18))
+        pygame.draw.rect(self.screen, (48, 58, 80), panel, 1, border_radius=S(18))
+        y = panel.y + S(34)
         for r in rows:
             if r is None:
                 y += lh // 2
                 continue
-            panel.blit(r, (32, y))
-            y += r.get_height() + 6
-        hint = self.f_hud.render('Нажмите любую клавишу или кликните, чтобы закрыть', True, (140, 152, 170))
-        panel.blit(hint, (32, h - 32 - hint.get_height() // 2))
-        self.screen.blit(panel, panel.get_rect(center=(sw // 2, sh // 2)))
+            self.screen.blit(r, (panel.x + S(36), y))
+            y += r.get_height() + S(7)
+        ui_.text(self.screen, 'Нажмите любую клавишу или кликните, чтобы закрыть', 13, C_HINT,
+                 (panel.x + S(36), panel.bottom - S(30)), 'midleft')
 
     # ---------- цикл
-    def watch_camera(self):
-        """Запоминает найденный режим камеры и перезапускает камеру, если она перестала присылать кадры."""
-        cam, now = self.camera, time.perf_counter()
-        if cam.chosen and not cam.is_file and self.s.get('cam_mode') != list(cam.chosen):
-            self.s['cam_mode'] = list(cam.chosen)
-            self.save()
-        if cam.seq != self._last_seq:
-            self._last_seq, self._last_seq_t = cam.seq, now
-        elif (cam.seq > 0 and not cam.is_file and not cam.error and now - self._last_seq_t > 3
-              and now - self._restart_t > 10):
-            log('Камера не присылает кадры 3 с — перезапускаю её')
-            self.set_status('Камера зависла — перезапускаю…', 3)
-            cam.alive = False
-            self._restart_t = self._last_seq_t = now
-            self._last_seq = 0
-            self.camera = Camera(self.cam_src, self.s['cam_mode'])
-            self.camera.start()
-
     def run(self):
         import gc
         gc.collect()
@@ -1523,17 +1313,19 @@ class App:
         t_start = time.perf_counter()
         try:
             while self.alive:
-                for ev in pygame.event.get():
-                    if ev.type == pygame.KEYDOWN and self.show_help and ev.key not in (pygame.K_h, pygame.K_F1, pygame.K_ESCAPE):
-                        self.show_help = False
+                events = pygame.event.get()
+                for ev in events:
                     self.handle(ev)
+                self.ui.begin(events, self.screen.get_height())
                 self.engine.shift = bool(pygame.key.get_mods() & pygame.KMOD_SHIFT)
                 if self.help_until and time.perf_counter() > self.help_until:
-                    self.show_help, self.help_until = False, 0
+                    self.hide_help()
                 if self.camera.seq and self.status == 'Включаю камеру…':
                     self.status = ''
                 self.watch_camera()
                 self.draw()
+                self.scene_input()
+                self.ui.end()
                 pygame.display.flip()
                 dt = clock.tick(60)
                 if dt > 150 and time.perf_counter() - t_start > 3:
@@ -1545,14 +1337,20 @@ class App:
         finally:
             self.alive = False
             self.camera.alive = False
+            self._engine_thread.join(timeout=1.0)  # дождаться кадра в нейросети, потом закрывать её
             self.save()
             if self.args.stats:
                 with open(self.args.stats, 'w', encoding='utf-8') as f:
                     json.dump({'hits': self.engine.hits_log, 'fps': self.engine.fps, 'det_ms': self.engine.det_ms,
-                               'camera': self.camera.info, 'cam_fps': self.camera.fps, 'model': self.model_state}, f, ensure_ascii=False)
+                               'camera': self.camera.info, 'cam_fps': self.camera.fps, 'model': self.model_state},
+                              f, ensure_ascii=False)
             if self.engine.hands:
                 self.engine.hands.close()
             pygame.quit()
+
+
+C_TEXT = (236, 241, 248)
+C_HINT = (150, 162, 180)
 
 
 # ============================================================ значок и ярлык
