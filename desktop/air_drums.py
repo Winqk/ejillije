@@ -82,9 +82,7 @@ DEFAULTS = {
     'colors': [],
     'pads': {},
     'camera': 0,
-    'cam_width': 1280,
-    'cam_height': 720,
-    'cam_fps': 60,
+    'cam_mode': None,       # подбирается автоматически при первом запуске
     'audio_buffer': 256,    # меньше — меньше задержка; если звук трещит — поставьте 512
     'fullscreen': False,
     'shortcut_done': False,
@@ -504,7 +502,9 @@ class HandTracker:
             min_hand_detection_confidence=0.5, min_hand_presence_confidence=0.5, min_tracking_confidence=0.5)
         self.lm = vision.HandLandmarker.create_from_options(opts)
         self.connections = [(c.start, c.end) for c in vision.HandLandmarksConnections.HAND_CONNECTIONS]
-        self.last_ts = -1
+        # «разогрев»: первый кадр нейросеть считает в разы дольше — делаем это при загрузке, а не во время игры
+        self.lm.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=np.zeros((360, 640, 3), np.uint8)), 0)
+        self.last_ts = 0
 
     def process(self, frame, t):
         h, w = frame.shape[:2]
@@ -685,16 +685,70 @@ class Engine:
 
 # ============================================================ камера
 
+CAM_MODES = [  # сначала режимы 60 к/с, затем лучшее из 30 к/с
+    (1280, 720, 60), (960, 540, 60), (848, 480, 60), (640, 480, 60), (640, 360, 60),
+    (1280, 720, 30), (640, 480, 30),
+]
+
+
 class Camera(threading.Thread):
-    def __init__(self, source, width, height, fps):
+    """Читает камеру в отдельном потоке. При первом запуске сама подбирает режим с наибольшей
+    реальной частотой кадров (встроенные камеры часто дают 60 к/с только в меньшем разрешении)."""
+
+    def __init__(self, source, mode_hint=None):
         super().__init__(daemon=True)
-        self.source, self.req = source, (width, height, fps)
+        self.source, self.mode_hint = source, mode_hint
         self.cond = threading.Condition()
         self.frame, self.t, self.seq = None, 0.0, 0
         self.error = None
         self.alive = True
         self.info = ''
+        self.chosen = None          # (w, h, запрошенные к/с) — App сохранит в настройки
+        self.fps = 0.0              # реальная частота кадров камеры
+        self.probing = False
         self.is_file = isinstance(source, str) and not source.isdigit()
+
+    @staticmethod
+    def _measure(cap, n=20):
+        stamps = []
+        for _ in range(n):
+            ok, _f = cap.read()
+            if not ok:
+                return 0.0
+            stamps.append(time.perf_counter())
+        d = stamps[-1] - stamps[5]
+        return (len(stamps) - 6) / d if d > 0 else 0.0
+
+    @staticmethod
+    def _apply(cap, mode):
+        w, h, f = mode
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        cap.set(cv2.CAP_PROP_FPS, f)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        return int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    def _configure(self, cap):
+        hint = tuple(self.mode_hint) if self.mode_hint else None
+        if hint and len(hint) == 3:  # режим, найденный в прошлый раз: быстро проверяем, что он всё ещё работает
+            self._apply(cap, hint)
+            if self._measure(cap, 14) >= hint[2] * 0.75:
+                self.chosen = hint
+                return
+        self.probing = True
+        best = None
+        for mode in CAM_MODES:
+            aw, ah = self._apply(cap, mode)
+            fps = self._measure(cap)
+            log(f'Камера: проба {mode[0]}×{mode[1]}@{mode[2]} → {aw}×{ah}, {fps:.0f} к/с')
+            if best is None or fps > best[1] + 5 or (abs(fps - best[1]) <= 5 and aw * ah > best[2]):
+                best = (mode, fps, aw * ah)
+            if fps >= 50:
+                break
+        self.probing = False
+        self.chosen = best[0]
+        self._apply(cap, self.chosen)
 
     def _open(self):
         if self.is_file:
@@ -704,12 +758,7 @@ class Camera(threading.Thread):
         for be in backends:  # DirectShow на Windows открывает камеру за доли секунды
             cap = cv2.VideoCapture(idx, be)
             if cap.isOpened():
-                w, h, fps = self.req
-                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-                cap.set(cv2.CAP_PROP_FPS, fps)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self._configure(cap)
                 return cap
             cap.release()
         return None
@@ -722,12 +771,12 @@ class Camera(threading.Thread):
                 self.error = ('Камера не найдена или занята другой программой (Zoom, Teams, браузер). '
                               'Закройте их и запустите игру снова.')
                 return
-            fps = cap.get(cv2.CAP_PROP_FPS) or 30
+            file_fps = cap.get(cv2.CAP_PROP_FPS) or 30
             self.info = f'{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}×{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}'
-            log(f'Камера: {self.info} @ {fps:.0f} к/с')
-            period = 1 / (fps if 1 < fps < 240 else 30)
+            log(f'Камера: {self.info}, режим {self.chosen}')
+            period = 1 / (file_fps if 1 < file_fps < 240 else 30)
             next_t = time.perf_counter()
-            fails = 0
+            fails, n, t_fps = 0, 0, time.perf_counter()
             while self.alive:
                 ok, frame = cap.read()
                 if not ok or frame is None:
@@ -745,8 +794,12 @@ class Camera(threading.Thread):
                     next_t += period
                     time.sleep(max(0.0, next_t - time.perf_counter()))
                 frame = cv2.flip(frame, 1)  # как в зеркале
+                now = time.perf_counter()
+                n += 1
+                if now - t_fps >= 1.0:
+                    self.fps, n, t_fps = n / (now - t_fps), 0, now
                 with self.cond:
-                    self.frame, self.t = frame, time.perf_counter()
+                    self.frame, self.t = frame, now
                     self.seq += 1
                     self.cond.notify_all()
         except Exception as e:
@@ -805,6 +858,9 @@ class PadArt:
             if len(self.cache) > 64:
                 self.cache.clear()
             art = self.cache[key] = self._build(p, rx)
+            for rgb in STICK_RGB + [(255, 255, 255)]:  # всё готовим заранее — никаких рывков на первом ударе
+                self.glow(art, rgb)
+                self.tint(art, rgb)
         return art
 
     def _build(self, p, rx_px):
@@ -890,10 +946,9 @@ class PadArt:
             scaled = pygame.transform.smoothscale(base, (int(base.get_width() * 1.12), int(base.get_height() * 1.25)))
             scaled.fill((255, 255, 255, 0), special_flags=pygame.BLEND_RGBA_MAX)
             g.blit(scaled, scaled.get_rect(center=(w // 2, pad + base.get_height() // 2)))
-            try:
-                g = pygame.transform.gaussian_blur(g, max(2, art['rx'] // 7))
-            except Exception:  # старый pygame — без размытия
-                pass
+            # размытие «уменьшить-увеличить»: в десятки раз быстрее гауссова и выглядит так же мягко
+            small = pygame.transform.smoothscale(g, (max(2, w // 10), max(2, h // 10)))
+            g = pygame.transform.smoothscale(small, (w, h))
             g.fill(rgb + (255,), special_flags=pygame.BLEND_RGBA_MULT)
             art['glow'][rgb] = g
         return g
@@ -958,9 +1013,11 @@ class App:
         self.fullscreen = bool(self.s['fullscreen'])
         self._set_mode()
 
-        cam_src = args.camera if args.camera is not None else str(self.s['camera'])
-        self.camera = Camera(cam_src, self.s['cam_width'], self.s['cam_height'], self.s['cam_fps'])
+        self.cam_src = args.camera if args.camera is not None else str(self.s['camera'])
+        self.camera = Camera(self.cam_src, self.s['cam_mode'])
         self.camera.start()
+        self._ov = None
+        self._last_seq, self._last_seq_t, self._restart_t = 0, time.perf_counter(), 0.0
         self.set_status('Включаю камеру…')
         threading.Thread(target=self._engine_loop, daemon=True).start()
         threading.Thread(target=self._metro_loop, daemon=True).start()
@@ -1049,7 +1106,11 @@ class App:
                 continue
             last = seq
             try:
+                t0 = time.perf_counter()
                 self.engine.process(frame, t)
+                dt = time.perf_counter() - t0
+                if dt > 0.15:
+                    log(f'Медленная обработка кадра: {dt * 1000:.0f} мс')
             except Exception:
                 log(traceback.format_exc())
                 time.sleep(0.05)
@@ -1228,10 +1289,14 @@ class App:
         seq, frame = self.camera.latest()
         if frame is not None and seq != self.frame_seq:
             self.frame_seq = seq
-            img = cv2.resize(frame, (st.w, st.h), interpolation=cv2.INTER_LINEAR)
-            img = cv2.convertScaleAbs(img, alpha=0.62)
+            fh, fw = frame.shape[:2]
+            img = cv2.convertScaleAbs(frame, alpha=0.62)
+            if st.w < fw:  # окно меньше кадра — уменьшаем качественно (это дёшево)
+                img = cv2.resize(img, st.size, interpolation=cv2.INTER_AREA)
             self._frame_buf = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            self.frame_surf = pygame.image.frombuffer(self._frame_buf.data, (st.w, st.h), 'RGB')
+            bh, bw = self._frame_buf.shape[:2]
+            src = pygame.image.frombuffer(self._frame_buf.data, (bw, bh), 'RGB')
+            self.frame_surf = src if (bw, bh) == st.size else pygame.transform.scale(src, st.size)
         if self.frame_surf is not None and self.frame_surf.get_size() == st.size:
             scr.blit(self.frame_surf, st.topleft)
         else:
@@ -1274,7 +1339,10 @@ class App:
         for p in order:
             self.draw_label(p, st)
 
-        ov = pygame.Surface(st.size, pygame.SRCALPHA)
+        if self._ov is None or self._ov.get_size() != st.size:
+            self._ov = pygame.Surface(st.size, pygame.SRCALPHA)
+        ov = self._ov
+        ov.fill((0, 0, 0, 0))
         hands = self.engine.view_hands
         conns = self.engine.hands.connections if self.engine.hands else []
         for hnd in hands:
@@ -1365,7 +1433,9 @@ class App:
         mode = 'Руки (ИИ)' if self.s['mode'] == 'hands' else 'Цветные кончики'
         if self.s['mode'] == 'hands' and self.model_state != 'ready':
             mode += ' — загрузка'
-        lines = [f'{mode} · {e.fps:.0f} к/с · удары: {e.hit_count}',
+        cam = self.camera
+        cam_txt = f'камера {cam.info} · {cam.fps:.0f} к/с' if cam.info else 'камера…'
+        lines = [f'{mode} · {cam_txt} · ИИ {e.fps:.0f} к/с · удары: {e.hit_count}',
                  f'Чувствительность {self.s["sens"]}/10 · громкость {self.s["volume"]}% · '
                  f'метроном {"вкл" if self.metro_on else "выкл"} ({self.s["bpm"]})   H — помощь']
         y = st.y + 10
@@ -1386,7 +1456,8 @@ class App:
             if self.camera.error:
                 msg, err = self.camera.error, True
             elif self.camera.seq == 0:
-                msg = 'Включаю камеру…'
+                msg = 'Подбираю режим камеры для 60 к/с (только при первом запуске)…' if self.camera.probing \
+                    else 'Включаю камеру…'
             elif self.editing:
                 msg = 'Перетаскивайте барабаны мышью, колёсико — размер. E — готово, R — по умолчанию.'
             elif self.s['mode'] == 'color' and not self.s['colors']:
@@ -1426,7 +1497,28 @@ class App:
         self.screen.blit(panel, panel.get_rect(center=(sw // 2, sh // 2)))
 
     # ---------- цикл
+    def watch_camera(self):
+        """Запоминает найденный режим камеры и перезапускает камеру, если она перестала присылать кадры."""
+        cam, now = self.camera, time.perf_counter()
+        if cam.chosen and not cam.is_file and self.s.get('cam_mode') != list(cam.chosen):
+            self.s['cam_mode'] = list(cam.chosen)
+            self.save()
+        if cam.seq != self._last_seq:
+            self._last_seq, self._last_seq_t = cam.seq, now
+        elif (cam.seq > 0 and not cam.is_file and not cam.error and now - self._last_seq_t > 3
+              and now - self._restart_t > 10):
+            log('Камера не присылает кадры 3 с — перезапускаю её')
+            self.set_status('Камера зависла — перезапускаю…', 3)
+            cam.alive = False
+            self._restart_t = self._last_seq_t = now
+            self._last_seq = 0
+            self.camera = Camera(self.cam_src, self.s['cam_mode'])
+            self.camera.start()
+
     def run(self):
+        import gc
+        gc.collect()
+        gc.freeze()  # всё, что создано при запуске, сборщик мусора больше не перебирает — меньше пауз
         clock = pygame.time.Clock()
         t_start = time.perf_counter()
         try:
@@ -1440,9 +1532,12 @@ class App:
                     self.show_help, self.help_until = False, 0
                 if self.camera.seq and self.status == 'Включаю камеру…':
                     self.status = ''
+                self.watch_camera()
                 self.draw()
                 pygame.display.flip()
-                clock.tick(60)
+                dt = clock.tick(60)
+                if dt > 150 and time.perf_counter() - t_start > 3:
+                    log(f'Рывок отрисовки: {dt} мс')
                 if self.args.quit_after and time.perf_counter() - t_start > self.args.quit_after:
                     if self.args.screenshot:
                         pygame.image.save(self.screen, self.args.screenshot)
@@ -1454,7 +1549,7 @@ class App:
             if self.args.stats:
                 with open(self.args.stats, 'w', encoding='utf-8') as f:
                     json.dump({'hits': self.engine.hits_log, 'fps': self.engine.fps, 'det_ms': self.engine.det_ms,
-                               'camera': self.camera.info, 'model': self.model_state}, f, ensure_ascii=False)
+                               'camera': self.camera.info, 'cam_fps': self.camera.fps, 'model': self.model_state}, f, ensure_ascii=False)
             if self.engine.hands:
                 self.engine.hands.close()
             pygame.quit()
