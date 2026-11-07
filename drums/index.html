@@ -110,7 +110,7 @@ main{position:relative;flex:1;min-height:0;display:grid;place-items:center}
       <p class="lead">Камера ноутбука и нейросеть превращают взмахи карандашами или палочками в звук полной ударной установки: бочка, малый, три тома, хай-хэт, крэш и райд.</p>
       <ol>
         <li>Сядьте в <b>1–1,5 м от камеры</b>, чтобы обе руки были в кадре, а свет падал спереди.</li>
-        <li><b>Бейте по воздуху сверху вниз и резко останавливайте руку.</b> Звучит барабан, над которым палочка остановилась. Чем быстрее удар, тем громче.</li>
+        <li><b>Бейте по воздуху сверху вниз.</b> Звучит ближайший барабан — целиться не нужно, короткого резкого взмаха кистью достаточно. Чем быстрее удар, тем громче.</li>
         <li><b>Бочка</b> — <span class="kbd">Пробел</span>, <b>открытый хай-хэт</b> — держите <span class="kbd">Shift</span>. Клавиши <span class="kbd">1</span>–<span class="kbd">7</span> тоже играют.</li>
         <li>Режим <b>«Руки · ИИ»</b> работает сразу. Для максимальной точности переключитесь на <b>«Цветные кончики»</b>: обмотайте кончики яркой изолентой и кликните по ним на видео.</li>
       </ol>
@@ -345,51 +345,65 @@ const STICK_RGB = ['56,225,255', '255,95,162'];
 const hits = [];
 window.__airdrums = { kit, pads: () => pads, hits, settings, DrumKit };
 
-const MODE_CFG = { hands: { vOn: 0.75, minTravel: 0.03 }, color: { vOn: 1.0, minTravel: 0.04 } };
+const MODE_CFG = { hands: { vOn: 4.0, minTravel: 0.22 }, color: { vOn: 6.0, minTravel: 0.3 } };
+const COLOR_SCALE = 0.12; // «условный размер» кончика, чтобы пороги совпадали с режимом рук
 let C = makeCfg();
 function makeCfg() {
   const f = 1.9 - 0.15 * settings.sens; // чувствительность 6 → 1.0
   const m = MODE_CFG[settings.mode];
-  return { vOn: m.vOn * f, minTravel: m.minTravel * Math.max(0.6, f), release: 0.5, refractory: 85 };
+  return { vOn: m.vOn * f, minTravel: m.minTravel * Math.max(0.6, f), release: 0.8, rearm: 0.35, refractory: 75 };
 }
 
 /* ---------------------- Палочки: детектор ударов ---------------------- */
-// Удар = быстрое движение вниз, затем резкое торможение. Звучит барабан в точке торможения.
+// Удар = быстрое движение вниз и начало торможения. Скорости меряются в «размерах ладони в секунду»,
+// поэтому пороги не зависят от расстояния до камеры. Звучит барабан, ближайший к точке приземления.
 class Stick {
   constructor(i) { this.i = i; this.rgb = STICK_RGB[i]; this.lastHit = -1e9; this.reset(); }
-  reset() { this.active = false; this.striking = false; this.trail = []; this.vy = 0; this.lastSeen = -1e9; }
-  start(x, y, t) {
-    Object.assign(this, { active: true, x, y, t, lastSeen: t, vy: 0, striking: false });
+  reset() { this.active = false; this.striking = false; this.armed = true; this.trail = []; this.vy = 0; this.lastSeen = -1e9; this.scale = 0.12; }
+  start(x, y, t, scale) {
+    Object.assign(this, { active: true, x, y, t, lastSeen: t, vy: 0, striking: false, armed: true, scale });
     this.trail = [{ x, y, t }];
   }
-  update(px, py, t) {
-    if (!this.active || t - this.lastSeen > 250) { this.start(px, py, t); return null; }
-    if (Math.hypot((px - this.x) * aspect, py - this.y) > 0.5) { this.start(px, py, t); return null; } // скачок трекинга
-    const dt = Math.max(8, t - this.t) / 1000;
-    const a = 0.7, nx = this.x + (px - this.x) * a, ny = this.y + (py - this.y) * a;
-    const prevY = this.y, vy = (ny - this.y) / dt;
-    Object.assign(this, { x: nx, y: ny, t, lastSeen: t, vy });
+  update(px, py, t, scale) {
+    const dt = this.active ? Math.max(8, t - this.t) / 1000 : 0.033;
+    // скачок быстрее 9 высот кадра в секунду — сбой трекинга, а не удар
+    if (!this.active || t - this.lastSeen > 250 || Math.hypot((px - this.x) * aspect, py - this.y) / dt > 9) {
+      this.start(px, py, t, scale); return null;
+    }
+    const nx = this.x + (px - this.x) * 0.7, ny = this.y + (py - this.y) * 0.7;
+    this.scale += (clamp(scale, 0.04, 0.4) - this.scale) * 0.2;
+    const prevY = this.y;
+    this.vy = (ny - this.y) / dt;
+    Object.assign(this, { x: nx, y: ny, t, lastSeen: t });
     this.trail.push({ x: nx, y: ny, t }); if (this.trail.length > 14) this.trail.shift();
+    const v = this.vy / this.scale;
     if (!this.striking) {
-      if (vy > C.vOn && t - this.lastHit > C.refractory) {
-        Object.assign(this, { striking: true, peak: vy, startY: prevY, strikeT: t });
+      if (!this.armed && v < C.vOn * C.rearm) this.armed = true;
+      if (this.armed && v > C.vOn && t - this.lastHit > C.refractory) {
+        Object.assign(this, { striking: true, peak: v, startY: prevY, strikeT: t });
       }
       return null;
     }
-    if (vy > this.peak) this.peak = vy;
-    if (vy < this.peak * C.release) {
+    if (v > this.peak) this.peak = v;
+    if (v < this.peak * C.release) { // рука начала тормозить — это удар
       this.striking = false;
-      if (this.y - this.startY >= C.minTravel) { this.lastHit = t; return { x: this.x, y: this.y, peak: this.peak }; }
+      if ((this.y - this.startY) / this.scale >= C.minTravel) {
+        this.lastHit = t; this.armed = false;
+        const y = Math.min(1, this.y + Math.min(Math.max(0, this.vy) * 0.033, this.scale * 0.6));
+        return { x: this.x, y, peak: this.peak };
+      }
     } else if (t - this.strikeT > 450) this.striking = false;
     return null;
   }
-  miss(t) { // палочка пропала на кадр (часто — смаз на самом ударе)
+  miss(t) { // на быстром ударе нейросеть может потерять руку на кадр-другой — ждём до 0,1 с
     if (!this.active) return null;
     let hit = null;
-    if (this.striking && t - this.lastSeen < 120) {
+    if (this.striking && t - this.lastSeen >= 100) {
       this.striking = false;
-      const y = Math.min(1, this.y + this.vy * 0.03);
-      if (this.peak > C.vOn * 1.25 && y - this.startY >= C.minTravel) { this.lastHit = t; hit = { x: this.x, y, peak: this.peak }; }
+      const y = Math.min(1, this.y + Math.min(Math.max(0, this.vy) * 0.06, this.scale * 1.5));
+      if (this.peak > C.vOn * 1.25 && (y - this.startY) / this.scale >= C.minTravel) {
+        this.lastHit = t; this.armed = false; hit = { x: this.x, y, peak: this.peak };
+      }
     }
     if (t - this.lastSeen > 300) this.active = false;
     return hit;
@@ -418,6 +432,16 @@ function assign(points) {
   return out;
 }
 
+function nearestPad(u, v) { // ближайший барабан — целиться не нужно; бочку палочкой только прямым попаданием
+  let best = null, bd = Infinity;
+  for (const p of pads) {
+    const rx = p.r * aspect, ry = p.type === 'kick' ? rx : rx * 0.85;
+    const dd = Math.hypot((u - p.x) * aspect / rx, (v - p.y) / ry);
+    if (p.id === 'kick' && dd > 1) continue;
+    if (dd < bd) { bd = dd; best = p; }
+  }
+  return [best, bd];
+}
 function padAt(u, v, maxD) {
   let best = null, bd = Infinity;
   for (const p of pads) {
@@ -437,14 +461,13 @@ function triggerPad(p, vel, stickIdx, x, y) {
   hitCount++;
   hits.push({ id: p.id, vel: +vel.toFixed(2), stick: stickIdx, t: Math.round(p.hitT) });
   if (hits.length > 500) hits.shift();
-  if (x != null) splashes.push({ x, y, t: p.hitT, rgb: p.hitColor, size: 0.6 + vel * 0.8 });
 }
 
 function onStickHit(h, s) {
   const vn = clamp((h.peak - C.vOn) / (C.vOn * 2.2), 0, 1);
-  const vel = 0.3 + 0.7 * Math.pow(vn, 0.8);
-  const p = padAt(h.x, h.y, 1.35);
-  if (p) triggerPad(p, vel, s.i, h.x, h.y);
+  const vel = 0.35 + 0.65 * Math.pow(vn, 0.8);
+  const [p, d] = nearestPad(h.x, h.y);
+  if (p && d <= 4) triggerPad(p, vel, s.i, h.x, h.y);
   else splashes.push({ x: h.x, y: h.y, t: performance.now(), rgb: '150,160,175', size: 0.5 });
 }
 
@@ -484,7 +507,8 @@ function detectHands(now) {
   // точка палочки — центр костяшек (5, 9, 13, 17): там, где палочка зажата в кулаке
   return lastHands.map(h => {
     let x = 0, y = 0; for (const i of [5, 9, 13, 17]) { x += h[i].x; y += h[i].y; }
-    return { x: x / 4, y: y / 4 };
+    const scale = Math.hypot((h[0].x - h[9].x) * aspect, h[0].y - h[9].y); // размер ладони
+    return { x: x / 4, y: y / 4, scale };
   });
 }
 
@@ -554,12 +578,12 @@ function detectColor() {
   blobs.sort((a, b) => b.area - a.area);
   if (cols.length === 2) { // два цвета — у каждой палочки свой
     const out = [];
-    for (let k = 0; k < 2; k++) { const b = blobs.find(bb => bb.k === k); if (b) out.push({ x: b.x, y: b.y, key: k }); }
+    for (let k = 0; k < 2; k++) { const b = blobs.find(bb => bb.k === k); if (b) out.push({ x: b.x, y: b.y, key: k, scale: COLOR_SCALE }); }
     return out;
   }
   if (!blobs.length) return [];
   const minA = Math.max(3, blobs[0].area * 0.25);
-  return blobs.filter(b => b.area >= minA).slice(0, 2).map(b => ({ x: b.x, y: b.y }));
+  return blobs.filter(b => b.area >= minA).slice(0, 2).map(b => ({ x: b.x, y: b.y, scale: COLOR_SCALE }));
 }
 function calibrate(u, v) {
   if (!CP.data) return;
@@ -591,7 +615,7 @@ function process(now) {
   const asg = assign(pts);
   for (let i = 0; i < 2; i++) {
     const s = sticks[i], p = asg[i];
-    const h = p ? s.update(p.x, p.y, now) : s.miss(now);
+    const h = p ? s.update(p.x, p.y, now, p.scale ?? COLOR_SCALE) : s.miss(now);
     if (h) onStickHit(h, s);
   }
   detFrames++;
@@ -690,11 +714,24 @@ function drawDrum(p, W, H, flash) {
   hg.addColorStop(0, '#ffffff'); hg.addColorStop(1, '#cfcabd');
   g.fillStyle = hg; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.fill();
   g.shadowBlur = 0;
-  if (flash > 0) { g.fillStyle = `rgba(${p.hitColor},${0.5 * flash})`; g.fill(); }
-  g.strokeStyle = '#e9edf3'; g.lineWidth = Math.max(2, rx * 0.06); g.stroke();
+  // мишень в центре — сюда и бьём
+  g.fillStyle = '#d6d0c2'; g.strokeStyle = '#b0aa9c'; g.lineWidth = Math.max(1.5, rx * 0.022);
+  g.beginPath(); g.ellipse(cx, cy, rx * 0.4, ry * 0.4, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.fillStyle = '#968f82'; g.beginPath(); g.ellipse(cx, cy, rx * 0.09, ry * 0.09, 0, 0, Math.PI * 2); g.fill();
+  centerFlash(cx, cy, rx, ry, p.hitColor, flash);
+  g.strokeStyle = '#e9edf3'; g.lineWidth = Math.max(2, rx * 0.06);
+  g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
   g.restore();
 }
 
+function centerFlash(cx, cy, rx, ry, rgb, flash) { // вспышка удара: ярче всего в центре
+  if (flash <= 0) return;
+  g.save(); g.translate(cx, cy); g.scale(1, ry / rx);
+  const fg = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+  fg.addColorStop(0, `rgba(${rgb},${0.95 * flash})`); fg.addColorStop(0.55, `rgba(${rgb},${0.45 * flash})`); fg.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = fg; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
 function drawCymbal(cx, cy, rx, ry, flash, rgb, wob, dark) {
   g.save(); g.translate(cx, cy); g.rotate(wob);
   if (flash > 0) { g.shadowColor = `rgb(${rgb})`; g.shadowBlur = 40 * flash * dpr; }
@@ -702,7 +739,6 @@ function drawCymbal(cx, cy, rx, ry, flash, rgb, wob, dark) {
   gr.addColorStop(0, dark ? '#d9c38a' : '#fff4c8'); gr.addColorStop(0.45, dark ? '#b38b35' : '#e9bd57'); gr.addColorStop(1, dark ? '#5e400c' : '#8a5f12');
   g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); g.fill();
   g.shadowBlur = 0;
-  if (flash > 0) { g.fillStyle = `rgba(${rgb},${0.35 * flash})`; g.fill(); }
   g.strokeStyle = 'rgba(80,50,8,0.35)'; g.lineWidth = Math.max(1, rx * 0.012);
   for (const k of [0.32, 0.55, 0.78]) { g.beginPath(); g.ellipse(0, 0, rx * k, ry * k, 0, 0, Math.PI * 2); g.stroke(); }
   const bg = g.createRadialGradient(0, -ry * 0.1, 1, 0, 0, rx * 0.16);
@@ -710,6 +746,7 @@ function drawCymbal(cx, cy, rx, ry, flash, rgb, wob, dark) {
   g.fillStyle = bg; g.beginPath(); g.ellipse(0, -ry * 0.05, rx * 0.16, ry * 0.22, 0, 0, Math.PI * 2); g.fill();
   g.strokeStyle = 'rgba(255,240,200,0.55)'; g.lineWidth = Math.max(1, rx * 0.015);
   g.beginPath(); g.ellipse(0, 0, rx, ry, 0, Math.PI * 1.05, Math.PI * 1.6); g.stroke();
+  centerFlash(0, 0, rx * 0.8, ry * 0.8, rgb, flash);
   g.restore();
 }
 function drawCymbalPad(p, W, H, flash, now) {
@@ -735,7 +772,9 @@ function drawKick(p, W, H, flash) {
   const hg = g.createRadialGradient(cx - R * 0.2, cy - R * 0.25, R * 0.05, cx, cy, R * 0.86);
   hg.addColorStop(0, '#2a2f3b'); hg.addColorStop(1, '#0d0f14');
   g.fillStyle = hg; g.beginPath(); g.arc(cx, cy, R * 0.86, 0, Math.PI * 2); g.fill();
-  if (flash > 0) { g.fillStyle = `rgba(${p.hitColor},${0.45 * flash})`; g.fill(); }
+  g.strokeStyle = 'rgba(160,168,182,0.6)'; g.lineWidth = Math.max(1.5, R * 0.025);
+  g.beginPath(); g.arc(cx, cy, R * 0.3, 0, Math.PI * 2); g.stroke();
+  centerFlash(cx, cy, R * 0.86, R * 0.86, p.hitColor, flash);
   g.strokeStyle = '#e9edf3'; g.lineWidth = Math.max(2, R * 0.05); g.beginPath(); g.arc(cx, cy, R * 0.88, 0, Math.PI * 2); g.stroke();
   g.restore();
 }
