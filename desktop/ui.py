@@ -328,7 +328,7 @@ def draw_icon(surf, name, center, size, color, w=2):
 # ============================================================ меню
 
 class Menu:
-    TABS = [('presets', 'Пресеты', 'presets'), ('drums', 'Барабаны', 'drums'),
+    TABS = [('presets', 'Пресеты', 'presets'), ('songs', 'Песни', 'play'), ('drums', 'Барабаны', 'drums'),
             ('sound', 'Звук и ритм', 'sound'), ('view', 'Вид', 'view'), ('about', 'Об игре', 'info')]
 
     def __init__(self, app):
@@ -708,6 +708,91 @@ class Menu:
         return r.bottom + S(10)
 
 
+    def tab_songs(self, surf, ui, area, y):
+        import rhythm
+        S = ui.S
+        app = self.app
+        s = app.s
+        y = self.header(surf, ui, area, y, 'Ритм-игра',
+                        'Бейте по барабану, когда кольцо сожмётся до его края. Чем точнее в долю — тем больше очков.')
+        half = (area.w - S(16)) // 2
+        mi = 0 if s['rg_mode'] == 'keys' else 1
+        ni = ui.segmented(surf, pygame.Rect(area.x, y, half, S(44)), ['Клавиатура', 'Руки'], mi)
+        if ni != mi:
+            app.set_option('rg_mode', 'keys' if ni == 0 else 'hands')
+        di = [d for d, _ in rhythm.DIFFS].index(s['rg_diff'])
+        nd = ui.segmented(surf, pygame.Rect(area.x + half + S(16), y, half, S(44)), [n for _, n in rhythm.DIFFS], di)
+        if nd != di:
+            app.set_option('rg_diff', rhythm.DIFFS[nd][0])
+        y += S(58)
+        # переключатели и калибровка
+        tw = S(52)
+        rows = [('rg_guide', 'Слышать барабаны песни')]
+        if s['rg_mode'] == 'hands':
+            rows.append(('rg_autokick', 'Бочка играет сама'))
+        x = area.x
+        for key, label in rows:
+            v = ui.toggle(surf, pygame.Rect(x, y, tw, S(28)), s[key])
+            if v != s[key]:
+                app.set_option(key, v)
+            r = ui.text(surf, label, 14, C['text'], (x + tw + S(10), y + S(14)), 'midleft')
+            x = r.right + S(26)
+        cal = s['calib_' + s['rg_mode']]
+        cb = pygame.Rect(area.right - S(170), y - S(6), S(170), S(40))
+        ui.text(surf, f'задержка {cal:+d} мс', 13, C['hint'], (cb.x - S(12), y + S(14)), 'midright')
+        if ui.button(surf, cb, 'Калибровка', icon='metro', size=14):
+            app.start_calibration()
+        y += S(50)
+        # своя песня
+        imp = app.importer
+        card = pygame.Rect(area.x, y, area.w, S(68))
+        pygame.draw.rect(surf, C['card'], card, border_radius=S(14))
+        if imp.busy:
+            ui.text(surf, imp.stage, 15, C['text'], (card.x + S(18), card.y + S(14)), bold=True)
+            pb = pygame.Rect(card.x + S(18), card.y + S(44), card.w - S(36), S(8))
+            pygame.draw.rect(surf, (40, 48, 66), pb, border_radius=S(4))
+            fw = max(S(8), int(pb.w * imp.progress))
+            surf.blit(ui.gradient(fw, pb.h, C['acc'], C['acc2'], S(4)), pb.topleft)
+        else:
+            ui.text(surf, 'Своя песня', 15, C['text'], (card.x + S(18), card.y + S(11)), bold=True)
+            ui.para(surf, 'MP3, OGG, WAV или FLAC — можно просто перетащить файл в окно игры. Ноты расставятся сами.',
+                    12, C['hint'], card.x + S(18), card.y + S(33), card.w - S(250))
+            if ui.button(surf, pygame.Rect(card.right - S(206), card.y + S(14), S(190), S(40)), 'Добавить песню',
+                         'primary', icon='plus', size=14):
+                app.pick_song_file()
+        y = card.bottom + S(16)
+        # список
+        key = f'{s["rg_mode"]}:{s["rg_diff"]}'
+        for song in app.songs.songs:
+            r = pygame.Rect(area.x, y, area.w, S(64))
+            pygame.draw.rect(surf, C['card_hi'] if ui.hovered(r) else C['card'], r, border_radius=S(14))
+            ui.text(surf, song['title'], 16, C['text'], (r.x + S(18), r.y + S(11)), bold=True)
+            mins = int(song['length'] // 60)
+            secs = int(song['length'] % 60)
+            n = len(song['charts'].get(s['rg_diff'], []))
+            meta = f'{song.get("genre", "")} · {round(song.get("bpm", 0))} уд/мин · {mins}:{secs:02d} · нот: {n}'
+            if song.get('user'):
+                meta += ' · ноты автоматические'
+            ui.text(surf, meta, 12, C['hint'], (r.x + S(18), r.y + S(37)))
+            xr = r.right - S(14)
+            pl = pygame.Rect(xr - S(120), r.centery - S(20), S(120), S(40))
+            if ui.button(surf, pl, 'Играть', 'primary', icon='play', size=14):
+                app.start_song(song)
+            xr = pl.x - S(10)
+            if song.get('user'):
+                dl = pygame.Rect(xr - S(40), r.centery - S(20), S(40), S(40))
+                if ui.button(surf, dl, '', 'danger', icon='trash'):
+                    app.songs.remove(song)
+                    return y
+                xr = dl.x - S(10)
+            best = app.s['scores'].get(song['id'], {}).get(key)
+            if best:
+                gc = {'S': C['gold'], 'A': (120, 230, 140), 'B': C['acc'], 'C': (200, 150, 255), 'D': C['danger']}[best['grade']]
+                ui.text(surf, best['grade'], 26, gc, (xr - S(8), r.centery), 'midright', True)
+                ui.text(surf, f'{best["score"]:,}'.replace(',', ' '), 12, C['hint'], (xr - S(44), r.centery), 'midright')
+            y += r.h + S(8)
+        return y
+
     def tab_about(self, surf, ui, area, y):
         S = ui.S
         app = self.app
@@ -743,7 +828,10 @@ class Menu:
         r = pygame.Rect(area.x, y + S(10), S(300), S(44))
         if ui.button(surf, r, 'Открыть папку с лицензиями', icon='folder', size=14):
             app.open_licenses()
-        return r.bottom + S(10)
+        y = r.bottom + S(18)
+        ui.text(surf, '© 2026 Winqk. Все права защищены. Встроенные песни написаны для этой игры.', 12,
+                C['hint'], (area.x, y))
+        return y + S(28)
 
 
 # ============================================================ редактор расстановки

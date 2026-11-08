@@ -275,6 +275,7 @@ class Audio:
         try:
             pygame.mixer.init(44100, -16, 2, int(buffer), allowedchanges=0)
             pygame.mixer.set_num_channels(48)
+            pygame.mixer.set_reserved(2)  # каналы 0–1 — музыка ритм-игры и щелчки калибровки
             self.sr = pygame.mixer.get_init()[0]
             synth = Synth(self.sr, 1)
             self.clicks = {}

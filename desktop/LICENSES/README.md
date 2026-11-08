@@ -16,6 +16,13 @@ The game is free. It bundles third-party components listed below; full license t
 | NumPy, matplotlib, Pillow, absl-py, flatbuffers, sounddevice и другие | BSD, MIT, PSF, Apache 2.0, MPL 2.0 (certifi) | `python-packages.txt` |
 | PyInstaller (загрузчик / bootloader) | GPL 2.0 с исключением, разрешающим распространять собранные программы на любых условиях / with an exception allowing distribution of bundled programs under any terms | https://pyinstaller.org/en/stable/license.html |
 
+## Сама игра / The game itself
+
+© 2026 Winqk. Все права защищены / All rights reserved. Код игры, графика и встроенные песни
+(папка `songs`, написаны специально для игры) не распространяются под открытой лицензией.
+Игру можно бесплатно скачивать и играть. The game's code, artwork and bundled songs are not open-source;
+the game is free to download and play.
+
 ## Записи барабанов / Drum recordings
 
 | Банк / Bank | Библиотека / Library | Авторы / Authors | Лицензия / License |

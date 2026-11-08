@@ -38,8 +38,10 @@ jobs:
         run: |
           python air_drums.py --write-ico air_drums.ico
           pyinstaller --noconfirm --windowed --name AirDrums --icon air_drums.ico \
-            --add-data "hand_landmarker.task;." --add-data "samples;samples" --collect-all mediapipe air_drums.py
+            --add-data "hand_landmarker.task;." --add-data "samples;samples" --add-data "songs;songs" --collect-all mediapipe air_drums.py
           test -d dist/AirDrums/_internal/samples/rusty/kick
+          test -f dist/AirDrums/_internal/songs/index.json
+          test -f dist/AirDrums/_internal/songs/first_beat/backing.ogg
 
       - name: Лицензии рядом с игрой
         env:
@@ -60,6 +62,7 @@ jobs:
           ./dist/AirDrums/AirDrums.exe --no-audio --camera missing.avi --quit-after 10 --stats stats.json
           cat stats.json
           grep -q '"model": "ready"' stats.json
+          grep -q '"songs": 5' stats.json
 
       - uses: actions/upload-artifact@v4
         with:

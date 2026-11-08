@@ -22,7 +22,7 @@ import traceback
 import urllib.request
 
 APP_NAME = 'Воздушные барабаны'
-APP_VERSION = '0.7.0'
+APP_VERSION = '0.8.0'
 BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 MODEL_NAME = 'hand_landmarker.task'
 MODEL_URL = ('https://storage.googleapis.com/mediapipe-models/hand_landmarker/'
@@ -70,6 +70,7 @@ import pygame  # noqa: E402
 import kits  # noqa: E402
 import sounds  # noqa: E402
 import ui  # noqa: E402
+import rhythm  # noqa: E402
 from kits import PRESETS, PRESET_BY_ID, SKINS, STICK_RGB  # noqa: E402
 from sounds import INSTRUMENTS, OPEN_HATS  # noqa: E402
 
@@ -99,6 +100,13 @@ DEFAULTS = {
     'fullscreen': False,
     'shortcut_done': False,
     'help_seen': False,
+    'rg_mode': 'keys',      # ритм-игра: keys | hands
+    'rg_diff': 'easy',
+    'rg_guide': True,       # слышать барабаны песни (подсказка)
+    'rg_autokick': True,    # в режиме «руки» бочку играет игра
+    'calib_keys': 0,        # задержка, мс
+    'calib_hands': 90,
+    'scores': {},
 }
 SETTINGS_PATH = os.path.join(data_dir(), 'settings.json')
 
@@ -122,6 +130,11 @@ def load_settings() -> dict:
     s['video'] = int(clamp(int(s['video']), 10, 100))
     s['bright_fingers'] = bool(s['bright_fingers'])
     s['kits'] = s['kits'] if isinstance(s['kits'], dict) else {}
+    s['rg_mode'] = s['rg_mode'] if s['rg_mode'] in ('keys', 'hands') else 'keys'
+    s['rg_diff'] = s['rg_diff'] if s['rg_diff'] in ('easy', 'medium', 'hard') else 'easy'
+    s['scores'] = s['scores'] if isinstance(s['scores'], dict) else {}
+    for k in ('calib_keys', 'calib_hands'):
+        s[k] = int(clamp(int(s[k]), -150, 350))
     return s
 
 
@@ -591,6 +604,7 @@ class Engine:
         self._reset = False
         self.cfg = make_cfg(settings['mode'], settings['sens'])
         self.det_ms = 0.0
+        self.hit_hook = None
 
     def refresh_cfg(self):
         self.cfg = make_cfg(self.s['mode'], self.s['sens'])
@@ -636,11 +650,13 @@ class Engine:
         else:
             self.events.append(('miss', h['x'], h['y'], time.perf_counter()))
 
-    def trigger(self, p, vel, stick=None, x=None, y=None, t=None):
+    def trigger(self, p, vel, stick=None, x=None, y=None, t=None, notify=True):
         open_ = self.shift and p['inst'] in OPEN_HATS
         if self.player:
             self.player(p['inst'], vel, open_)
         now = time.perf_counter()
+        if notify and self.hit_hook:  # ритм-игра и калибровка узнают об ударе (время — момент кадра камеры)
+            self.hit_hook(p, t if t is not None else now)
         p['hitT'] = now
         p['hitRgb'] = STICK_RGB[stick] if stick is not None else (255, 255, 255)
         self.hit_count += 1
@@ -692,6 +708,12 @@ class App:
         if self.audio:
             self.audio.prioritize([p['inst'] for p in pads])
             self.audio.set_banks(PRESET_BY_ID[self.s['preset']].get('banks', []))
+        self.songs = rhythm.SongLib(os.path.join(BASE_DIR, 'songs'), os.path.join(data_dir(), 'songs'))
+        self.importer = rhythm.Importer(self.songs, log)
+        self.rhythm = None
+        self.calib = None
+        self.rg_lanes = {}
+        self.engine.hit_hook = self._on_pad_hit
         self.metro_on = False
         self.metro_flash = 0.0
         self.metro_beat_i = 0
@@ -867,6 +889,88 @@ class App:
     def audio_preview(self, inst):
         if self.audio:
             self.audio.play(inst, 0.8)
+
+    # ---------- ритм-игра
+    def rg_lanes_now(self):
+        return rhythm.lane_map(self.engine.pads)
+
+    def _on_pad_hit(self, p, t):
+        if self.calib is not None:
+            if self.s['rg_mode'] == 'hands':
+                self.calib.on_hit(t)
+        elif self.rhythm is not None:
+            self.rhythm.on_pad(p, t)
+
+    def start_song(self, song):
+        if not self.audio or not self.audio.ok:
+            self.set_status('Звук недоступен — ритм-игра не может играть музыку.', 4, True)
+            return
+        if self.rhythm is not None:
+            self.rhythm.stop_audio()
+        self.menu.close()
+        self.editor.active = False
+        if song.get('preset') and song['preset'] != self.s['preset']:
+            self.apply_preset(song['preset'])
+        if self.s['rg_mode'] == 'hands' and self.s['mode'] == 'hands':
+            self.load_model()
+        self.rg_lanes = rhythm.lane_map(self.engine.pads)
+        self.rhythm = rhythm.RhythmGame(self, song, self.s['rg_diff'], self.s['rg_mode'])
+
+    def end_song(self):
+        if self.rhythm is not None:
+            self.rhythm.stop_audio()
+        self.rhythm = None
+        self.menu.show('songs')
+
+    def start_calibration(self):
+        if not self.audio or not self.audio.ok:
+            self.set_status('Звук недоступен — калибровка невозможна.', 4, True)
+            return
+        self.menu.close()
+        self.rg_lanes = rhythm.lane_map(self.engine.pads)
+        self.calib = rhythm.Calibration(self, self.s['rg_mode'])
+
+    def import_song(self, path):
+        if not path or os.path.splitext(path)[1].lower() not in rhythm.AUDIO_EXT:
+            self.set_status('Нужен аудиофайл: MP3, OGG, WAV или FLAC.', 3, True)
+            return
+        if self.importer.busy:
+            self.set_status('Подождите: предыдущая песня ещё разбирается.', 3)
+            return
+        self.importer.start(path)
+        self.menu.show('songs')
+
+    def pick_song_file(self):
+        try:
+            import tkinter
+            from tkinter import filedialog
+            root = tkinter.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            path = filedialog.askopenfilename(title='Выберите песню', filetypes=[
+                ('Аудио', '*.mp3 *.ogg *.wav *.flac *.opus'), ('Все файлы', '*.*')])
+            root.destroy()
+        except Exception as e:
+            log(f'Окно выбора файла недоступно: {e!r}')
+            self.set_status('Перетащите аудиофайл прямо в окно игры.', 4)
+            return
+        if path:
+            self.import_song(path)
+
+    def update_rhythm(self):
+        if self.rhythm is not None:
+            self.rhythm.update()
+            if self.rhythm.state == 'error':
+                self.rhythm = None
+        if self.calib is not None:
+            self.calib.update()
+        imp = self.importer
+        if imp.done_title:
+            self.set_status(f'Песня «{imp.done_title}» готова — она в списке песен.', 4)
+            imp.done_title = None
+        if imp.error:
+            self.set_status(imp.error, 5, True)
+            imp.error = None
 
     # ---------- настройки
     def set_volume(self, v):
@@ -1052,6 +1156,8 @@ class App:
             self.labels.clear()
         elif ev.type == pygame.KEYDOWN:
             self.on_key(ev)
+        elif ev.type == getattr(pygame, 'DROPFILE', -1):
+            self.import_song(ev.file)
 
     DIGITS = {getattr(pygame, f'K_{i}'): str(i) for i in range(1, 10)}
     DIGITS.update({getattr(pygame, f'K_KP{i}'): str(i) for i in range(1, 10)})
@@ -1062,6 +1168,33 @@ class App:
         if self.show_help and k not in (pygame.K_h, pygame.K_F1):
             self.hide_help()
             if k == pygame.K_ESCAPE:
+                return
+        if self.calib is not None:
+            if self.calib.done or k == pygame.K_ESCAPE:
+                self.calib = None
+                return
+            if self.s['rg_mode'] == 'keys' and (k in rhythm.LANE_KEYS or k in self.DIGITS):
+                lane = rhythm.LANE_KEYS.get(k, 'snare')
+                p = self.rg_lanes_now().get(lane)
+                if p:
+                    self.engine.trigger(p, 0.9, notify=False)
+                self.calib.on_hit(time.perf_counter())
+            return
+        if self.rhythm is not None:
+            g = self.rhythm
+            if g.state in ('results', 'error'):
+                return
+            if k == pygame.K_ESCAPE:
+                g.resume() if g.paused_at is not None else g.pause()
+                return
+            if g.mode == 'keys' and k in rhythm.LANE_KEYS:
+                lane = rhythm.LANE_KEYS[k]
+                p = self.rg_lanes.get(lane)
+                if p:
+                    self.engine.trigger(p, 0.9, notify=False)
+                g.on_lanes([lane], time.perf_counter())
+                return
+            if k not in self.DIGITS and k not in (pygame.K_SPACE, pygame.K_b, pygame.K_KP0):
                 return
         # барабаны с клавиатуры работают всегда — даже в меню, чтобы проверять звук
         if k in self.DIGITS:
@@ -1250,6 +1383,27 @@ class App:
         if self.editor.active:
             self.editor.draw_overlay(scr, st)
         self.draw_hud(st, now)
+        if self.rhythm is not None:
+            rhythm.draw_game(self, scr, st, ui_)
+            if self.rhythm.state == 'results':
+                act = rhythm.draw_results(self, scr, ui_)
+                if act == 'restart':
+                    self.start_song(self.rhythm.song)
+                elif act == 'quit':
+                    self.end_song()
+            elif self.rhythm.paused_at is not None:
+                act = rhythm.draw_pause(self, scr, ui_)
+                if act == 'resume':
+                    self.rhythm.resume()
+                elif act == 'restart':
+                    self.start_song(self.rhythm.song)
+                elif act == 'quit':
+                    self.end_song()
+        if self.calib is not None:
+            rhythm.draw_calibration(self, scr, ui_)
+            if ui_.click and self.calib.done:
+                self.calib = None
+            ui_.block(scr.get_rect())
         if self.editor.active and not self.menu.open:
             self.editor.toolbar(scr, ui_)
         if self.show_help:
@@ -1365,7 +1519,7 @@ class App:
             y += bg.get_height() + S(3)
         # кнопка меню
         mb = pygame.Rect(st.right - S(176), st.y + S(12), S(162), S(42))
-        if not self.menu.open:
+        if not self.menu.open and self.rhythm is None and self.calib is None:
             if ui_.button(self.screen, mb, 'Меню · Esc', icon='menu', size=15):
                 self.menu.show()
         if self.metro_on and now - self.metro_flash < 0.09:
@@ -1442,6 +1596,7 @@ class App:
                 if self.camera.seq and self.status == 'Включаю камеру…':
                     self.status = ''
                 self.watch_camera()
+                self.update_rhythm()
                 self.draw()
                 self.scene_input()
                 self.ui.end()
@@ -1461,7 +1616,8 @@ class App:
             if self.args.stats:
                 with open(self.args.stats, 'w', encoding='utf-8') as f:
                     json.dump({'hits': self.engine.hits_log, 'fps': self.engine.fps, 'det_ms': self.engine.det_ms,
-                               'camera': self.camera.info, 'cam_fps': self.camera.fps, 'model': self.model_state},
+                               'camera': self.camera.info, 'cam_fps': self.camera.fps, 'model': self.model_state,
+                               'songs': len(self.songs.songs)},
                               f, ensure_ascii=False)
             if self.engine.hands:
                 self.engine.hands.close()
