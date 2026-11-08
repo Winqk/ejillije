@@ -49,18 +49,56 @@ SKINS = {
         cym=((240, 232, 210), (176, 160, 120), (66, 58, 42)), cym_dark=((200, 190, 160), (130, 116, 84), (40, 34, 24)),
         kick_head=((30, 30, 34), (8, 8, 10)), logo='METAL', logo_rgb=(230, 46, 46), grain=False, stripe=(200, 28, 28)),
 }
-SKIN_ORDER = ['rock', 'jazz', 'hiphop', 'electro', 'metal']
+CHROME = (222, 226, 234)
+SKINS.update({
+    'wine': dict(  # винно-красный лак с текстурой дерева
+        name='Винный лак', style='acoustic', accent=(214, 52, 62), bg=((60, 12, 16), (14, 6, 8)),
+        shell=[(52, 8, 12), (122, 20, 28), (178, 44, 52), (122, 20, 28), (52, 8, 12)],
+        snare_shell=[(52, 8, 12), (122, 20, 28), (178, 44, 52), (122, 20, 28), (52, 8, 12)],
+        head=((255, 255, 252), (214, 210, 200)), target=((222, 218, 208), (186, 180, 168), (160, 154, 142)),
+        rim=CHROME, lug=CHROME, lugs='block', grain=True, grain_rgb=(40, 4, 8, 70), stripe=None,
+        cym=((255, 240, 190), (226, 178, 82), (128, 88, 20)), cym_dark=((214, 190, 130), (172, 132, 50), (90, 60, 12)),
+        kick_head=((34, 34, 38), (10, 10, 12)), logo='AIR DRUMS', logo_rgb=(245, 245, 245), logo_style='bold',
+        kick_port=True, hoop=True, stand=(170, 176, 188)),
+    'metallic': dict(  # серо-стальной металлик с блёстками
+        name='Стальной металлик', style='acoustic', accent=(150, 176, 196), bg=((30, 40, 50), (8, 10, 14)),
+        shell=[(40, 48, 58), (104, 120, 134), (196, 210, 222), (104, 120, 134), (40, 48, 58)],
+        snare_shell=[(40, 48, 58), (104, 120, 134), (196, 210, 222), (104, 120, 134), (40, 48, 58)],
+        head=((255, 255, 255), (220, 220, 214)), target=((226, 226, 220), (190, 190, 182), (164, 164, 156)),
+        rim=CHROME, lug=CHROME, lugs='tube', sparkle=(235, 245, 255), badge=True, grain=False, stripe=None,
+        cym=((255, 242, 196), (232, 186, 88), (136, 94, 20)), cym_dark=((216, 192, 134), (176, 136, 54), (92, 62, 14)),
+        kick_head=((30, 30, 34), (8, 8, 10)), logo='Air Drums', logo_rgb=(250, 250, 250), logo_style='script',
+        hoop=True, stand=(176, 182, 194)),
+    'flames': dict(  # чёрные корпуса с пламенем
+        name='Пламя', style='acoustic', accent=(255, 128, 24), bg=((48, 14, 4), (8, 4, 2)),
+        shell=[(4, 4, 6), (22, 20, 24), (54, 50, 56), (22, 20, 24), (4, 4, 6)],
+        snare_shell=[(4, 4, 6), (22, 20, 24), (54, 50, 56), (22, 20, 24), (4, 4, 6)],
+        head=((255, 255, 255), (214, 212, 206)), target=((222, 220, 214), (200, 110, 40), (230, 120, 30)),
+        rim=CHROME, lug=CHROME, lugs='block', flames=True, grain=False, stripe=None,
+        cym=((255, 246, 200), (240, 196, 90), (150, 104, 24)), cym_dark=((220, 196, 136), (180, 140, 56), (96, 66, 16)),
+        kick_head=((26, 26, 30), (6, 6, 8)), logo='AIR DRUMS', logo_rgb=(255, 255, 255), logo_style='metal',
+        hoop=True, stand=(176, 182, 194)),
+    'ekit': dict(  # электронная установка: чёрные сеточные пэды и резиновые тарелки
+        name='Электронная установка', style='ekit', accent=(255, 70, 60), bg=((26, 28, 34), (6, 6, 8)),
+        stand=(34, 34, 38)),
+})
+SKINS['rock']['name'] = 'Красный блеск'
+SKINS['jazz']['name'] = 'Орех'
+SKINS['metal']['name'] = 'Чёрный лак'
+SKINS['electro']['name'] = 'Неон'
+SKINS['hiphop']['name'] = 'Пэды драм-машины'
+SKIN_ORDER = ['flames', 'metallic', 'wine', 'ekit', 'hiphop', 'rock', 'jazz', 'metal', 'electro']
 
 # ============================================================ пресеты жанров
 # (инструмент, x, y, радиус в долях ширины, поворот°, бочка «только прямым попаданием»)
 
 PRESETS = [
-    dict(id='rock', name='Рок', skin='rock', banks=['rusty'],
+    dict(id='rock', name='Рок', skin='flames', banks=['rusty'],
          desc='Живая установка 80-х: три тома, крэш и райд', pads=[
         ('crash', .15, .28, .115, 0), ('hihat', .16, .60, .095, 0), ('snare', .36, .74, .10, 0),
         ('tom_hi', .39, .42, .082, 0), ('tom_mid', .61, .42, .082, 0), ('floor', .65, .75, .108, 0),
         ('ride', .85, .34, .125, 0), ('kick', .5, .94, .075, 0, True)]),
-    dict(id='jazz', name='Джаз', skin='jazz', banks=['virtuosity', 'frankensnare'],
+    dict(id='jazz', name='Джаз', skin='metallic', banks=['virtuosity', 'frankensnare'],
          desc='Живой джазовый сет: щётки и большой райд', pads=[
         ('crash', .17, .27, .10, -8), ('hihat', .15, .60, .09, 0), ('snare_brush', .37, .73, .095, 0),
         ('tom_mid', .47, .42, .08, 0), ('floor', .66, .74, .10, 0), ('ride_jazz', .80, .36, .14, 6),
@@ -70,12 +108,12 @@ PRESETS = [
         ('crash', .2, .36, .075, 0), ('hat808_open', .4, .36, .075, 0), ('snap', .6, .36, .075, 0),
         ('cowbell', .8, .36, .075, 0), ('hat808', .2, .70, .075, 0), ('kick808', .4, .70, .075, 0),
         ('snare', .6, .70, .075, 0), ('clap', .8, .70, .075, 0)]),
-    dict(id='electro', name='Электроника', skin='electro', banks=[],
+    dict(id='electro', name='Электроника', skin='ekit', banks=[],
          desc='Синтез в духе 909: плотная бочка, неон', pads=[
         ('crash', .15, .28, .11, 0), ('hat808', .16, .60, .095, 0), ('snare909', .36, .74, .10, 0),
         ('tom808', .40, .42, .08, 0), ('clap', .60, .42, .08, 0), ('tom808_lo', .66, .75, .10, 0),
         ('ride', .85, .34, .12, 0), ('kick909', .5, .94, .075, 0, True)]),
-    dict(id='metal', name='Метал', skin='metal', banks=['drs'],
+    dict(id='metal', name='Метал', skin='wine', banks=['drs'],
          desc='Живая тяжёлая установка: 4 тома и чайна', pads=[
         ('crash', .12, .25, .10, -10), ('china', .88, .22, .10, 10), ('hihat', .12, .56, .088, 0),
         ('snare_tight', .33, .75, .098, 0), ('tom_hi', .33, .43, .072, -6), ('tom_mid', .5, .37, .072, 0),
@@ -257,6 +295,8 @@ class PadArt:
             s, sp, (cx, cy), ry, below = self._mpc(skin, inst, rx)
         elif style == 'neon':
             s, sp, (cx, cy), ry, below = self._neon(skin, inst, rx)
+        elif style == 'ekit':
+            s, sp, (cx, cy), ry, below = self._ekit(skin, inst, rx)
         else:
             s, sp, (cx, cy), ry, below = self._acoustic(skin, inst, rx)
         size = (s.get_width() // self.SS, s.get_height() // self.SS)
@@ -322,25 +362,43 @@ class PadArt:
         sp = pygame.Surface((W, H), pygame.SRCALPHA)
         if t in ('drum', 'floor', 'snare'):
             stops = skin['snare_shell'] if t == 'snare' else skin['shell']
+            mask = pygame.Surface((W, H), pygame.SRCALPHA)
             for x in range(-rx, rx + 1):
                 yy = ry * math.sqrt(max(0.0, 1 - (x / rx) ** 2))
                 pygame.draw.line(s, grad(stops, (x + rx) / (2 * rx)), (cx + x, cy), (cx + x, cy + yy + depth))
+                pygame.draw.line(mask, (255, 255, 255, 255), (cx + x, cy), (cx + x, cy + yy + depth))
                 if skin['stripe']:
                     y0 = cy + yy + depth * 0.45
                     pygame.draw.line(s, skin['stripe'], (cx + x, y0), (cx + x, y0 + max(3, depth * 0.12)))
+            rnd = random.Random(hash(inst) & 0xffff)
+            layer = pygame.Surface((W, H), pygame.SRCALPHA)
             if skin['grain']:
-                layer = pygame.Surface((W, H), pygame.SRCALPHA)
-                rnd = random.Random(hash(inst) & 0xffff)
-                for _ in range(16):
-                    gx = rnd.uniform(-0.95, 0.95)
+                for _ in range(22):
+                    gx = rnd.uniform(-0.97, 0.97)
                     x0 = cx + rx * gx
                     yy = ry * math.sqrt(max(0.0, 1 - gx * gx))
                     pts = [(x0 + math.sin(k * 0.9 + gx * 7) * rx * 0.012, cy + yy + depth * k / 6) for k in range(7)]
-                    pygame.draw.lines(layer, (25, 12, 4, 90), False, pts, max(2, rx // 90))
-                s.blit(layer, (0, 0))
-            for a in (-0.72, -0.25, 0.25, 0.72):
-                lx, ly = cx + rx * a, cy + ry * math.sqrt(1 - a * a)
-                pygame.draw.line(s, skin['lug'], (lx, ly + depth * 0.15), (lx, ly + depth * 0.82), max(2, rx // 40))
+                    pygame.draw.lines(layer, skin.get('grain_rgb', (25, 12, 4, 90)), False, pts, max(2, rx // 90))
+            if skin.get('sparkle'):
+                sc = skin['sparkle']
+                for _ in range(int(rx * (depth + ry) / 18)):
+                    gx = rnd.uniform(-1, 1)
+                    yy = ry * math.sqrt(max(0.0, 1 - gx * gx))
+                    py = cy + yy + rnd.uniform(0, depth)
+                    pygame.draw.circle(layer, sc + (rnd.randint(60, 230),), (cx + gx * rx, py), rnd.choice((1, 1, 2, 2, 3)))
+            if skin.get('flames'):
+                self._flames(layer, rnd, cx, cy, rx, ry, depth)
+            layer.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+            s.blit(layer, (0, 0))
+            if skin.get('hoop'):  # нижний обод
+                pygame.draw.arc(s, skin['rim'], erect(cx, cy + depth, rx, ry), math.pi * 1.02, math.pi * 1.98, max(3, int(rx * 0.045)))
+            self._lugs(s, skin, cx, cy, rx, ry, depth)
+            if skin.get('badge'):  # овальная табличка на корпусе (без надписей)
+                by = cy + ry + depth * 0.5
+                bw, bh = rx * 0.16, max(6, depth * 0.24)
+                pygame.draw.ellipse(s, (210, 214, 222), erect(cx, by, bw, bh))
+                pygame.draw.ellipse(s, (30, 34, 42), erect(cx, by, bw * 0.8, bh * 0.72))
+                pygame.draw.line(s, (200, 206, 214), (cx - bw * 0.45, by), (cx + bw * 0.45, by), max(1, rx // 90))
             radial(s, cx, cy, rx, ry, *skin['head'])
             t0, t1, t2 = skin['target']
             pygame.draw.ellipse(s, t0, erect(cx, cy, rx * 0.4, ry * 0.4))
@@ -351,11 +409,22 @@ class PadArt:
             below = ry + depth
         elif t == 'kick':
             sh = skin['shell']
-            radial(s, cx, cy, rx, rx, sh[1], sh[0], shift=(0, 0))
+            radial(s, cx, cy, rx, rx, sh[2] if skin.get('sparkle') else sh[1], sh[0], shift=(0, 0))
+            if skin.get('flames'):  # огненный обод: корпус в пламени виден спереди тонким кольцом
+                ring = pygame.Surface((W, H), pygame.SRCALPHA)
+                n = 24
+                for i in range(n, 0, -1):
+                    f = i / n
+                    col = grad([(255, 236, 140), (255, 150, 24), (200, 40, 8), (40, 8, 4)], f)
+                    pygame.draw.circle(ring, col + (255,), (cx, cy), int(rx * (0.86 + 0.14 * f)))
+                pygame.draw.circle(ring, (0, 0, 0, 0), (cx, cy), int(rx * 0.86))
+                s.blit(ring, (0, 0))
             radial(s, cx, cy, rx * 0.86, rx * 0.86, *skin['kick_head'])
-            f = self.font_fn(max(10, int(rx * 0.3)), True)
-            logo = f.render(skin['logo'], True, skin['logo_rgb'])
-            s.blit(logo, logo.get_rect(center=(cx, cy - rx * 0.36)))
+            if skin.get('kick_port'):  # отверстие в переднем пластике
+                px, py = cx + rx * 0.45, cy + rx * 0.38
+                pygame.draw.circle(s, (4, 4, 5), (px, py), rx * 0.13)
+                pygame.draw.circle(s, (70, 70, 76), (px, py), rx * 0.13, max(2, rx // 60))
+            self._kick_logo(s, skin, cx, cy, rx)
             pygame.draw.circle(s, skin['rim'], (cx, cy), int(rx * 0.88), max(3, int(rx * 0.05)))
             pygame.draw.circle(s, skin['target'][1], (cx, cy), int(rx * 0.3), max(2, rx // 40))
             spot(sp, cx, cy, rx * 0.86, rx * 0.86)
@@ -375,6 +444,150 @@ class PadArt:
             spot(sp, cx, cy, rx, ry)
             below = ry + depth
         return s, sp, (cx, cy), ry, below
+
+    @staticmethod
+    def _lugs(s, skin, cx, cy, rx, ry, depth):
+        style = skin.get('lugs', 'line')
+        for a in (-0.78, -0.4, 0.0, 0.4, 0.78) if style != 'line' else (-0.72, -0.25, 0.25, 0.72):
+            lx, ly = cx + rx * a, cy + ry * math.sqrt(1 - a * a)
+            if style == 'tube':  # длинные трубчатые крепления
+                w = max(3, rx // 26)
+                r = pygame.Rect(0, 0, w, depth * 0.78)
+                r.midtop = (lx, ly + depth * 0.1)
+                pygame.draw.rect(s, (90, 94, 102), r.inflate(2, 2), border_radius=w)
+                pygame.draw.rect(s, skin['lug'], r, border_radius=w)
+                pygame.draw.line(s, (255, 255, 255), (r.centerx - w // 4, r.top + 2), (r.centerx - w // 4, r.bottom - 2), 1)
+            elif style == 'block':  # короткие блоки-крепления
+                w, h = max(5, int(rx * 0.07)), max(6, int(depth * 0.32))
+                r = pygame.Rect(0, 0, w, h)
+                r.center = (lx, ly + depth * 0.5)
+                pygame.draw.rect(s, (90, 94, 102), r.inflate(2, 2), border_radius=w // 3)
+                pygame.draw.rect(s, skin['lug'], r, border_radius=w // 3)
+                pygame.draw.line(s, (255, 255, 255), (r.left + w // 3, r.top + 2), (r.left + w // 3, r.bottom - 3), 1)
+            else:
+                pygame.draw.line(s, skin['lug'], (lx, ly + depth * 0.15), (lx, ly + depth * 0.82), max(2, rx // 40))
+
+    @staticmethod
+    def _flames(layer, rnd, cx, cy, rx, ry, depth):
+        """Языки пламени, поднимающиеся от нижнего края корпуса."""
+        fl = pygame.Surface(layer.get_size(), pygame.SRCALPHA)
+        n = 9
+        for i in range(n):
+            gx = -1 + (i + rnd.uniform(0.2, 0.8)) * 2 / n
+            base_y = cy + ry * math.sqrt(max(0.0, 1 - gx * gx)) + depth
+            x0 = cx + gx * rx
+            w = rx * 2 / n * rnd.uniform(1.0, 1.5)
+            hgt = (depth + ry * 0.3) * rnd.uniform(0.55, 1.0)
+            lean = rnd.uniform(-0.35, 0.35) * w
+            for k, col in enumerate(((200, 30, 8), (255, 110, 16), (255, 205, 60), (255, 245, 170))):
+                sc = 1 - k * 0.22
+                pts = []
+                for j in range(13):
+                    v = j / 12
+                    yv = base_y - hgt * sc * math.sin(v * math.pi) ** 0.4 * (1 - abs(v - 0.5) * 0.4)
+                    pts.append((x0 - w * sc / 2 + w * sc * v + lean * (1 - abs(v - 0.5) * 2) * sc, yv))
+                tip = (x0 + lean * sc * 1.2, base_y - hgt * sc * 1.15)
+                poly = [(x0 - w * sc / 2, base_y)] + pts[:6] + [tip] + pts[7:] + [(x0 + w * sc / 2, base_y)]
+                pygame.draw.polygon(fl, col + (235,), poly)
+        layer.blit(soft_blur(fl, 2), (0, 0))
+        layer.blit(fl, (0, 0))
+
+    def _kick_logo(self, s, skin, cx, cy, rx):
+        style = skin.get('logo_style', 'top')
+        if style == 'top':
+            f = self.font_fn(max(10, int(rx * 0.3)), True)
+            logo = f.render(skin['logo'], True, skin['logo_rgb'])
+            s.blit(logo, logo.get_rect(center=(cx, cy - rx * 0.36)))
+            return
+        size = int(rx * (0.36 if style == 'script' else 0.3))
+        f = self.font_fn(max(10, size), True)
+        italic = style in ('script', 'metal')
+        f.italic = italic
+        try:
+            logo = f.render(skin['logo'], True, skin['logo_rgb'])
+            if style == 'metal':  # контур и свечение
+                glow = f.render(skin['logo'], True, (255, 120, 20))
+        finally:
+            f.italic = False
+        if logo.get_width() > rx * 1.2:  # логотип помещается в верхнюю хорду пластика
+            k = rx * 1.2 / logo.get_width()
+            logo = pygame.transform.smoothscale(logo, (int(logo.get_width() * k), int(logo.get_height() * k)))
+            if style == 'metal':
+                glow = pygame.transform.smoothscale(glow, logo.get_size())
+        c = (cx, cy - rx * 0.42)  # бочка стоит у нижнего края кадра — логотип в верхней, видимой части
+        if style == 'metal':
+            g = pygame.Surface((logo.get_width() + 40, logo.get_height() + 40), pygame.SRCALPHA)
+            for dx, dy in ((-3, 0), (3, 0), (0, -3), (0, 3), (-2, -2), (2, 2), (-2, 2), (2, -2)):
+                g.blit(glow, (20 + dx, 20 + dy))
+            s.blit(soft_blur(g, 3), g.get_rect(center=c))
+        s.blit(logo, logo.get_rect(center=c))
+
+    # ---------- электронная установка
+    def _ekit(self, skin, inst, rx):
+        t = INSTRUMENTS[inst]['type']
+        if t == 'kick':
+            ry, depth = rx, 0
+        elif t in ('cymbal', 'hihat'):
+            ry, depth = int(rx * 0.36), (int(rx * 0.3) if t == 'hihat' else 0)
+        else:
+            ry, depth = int(rx * 0.42), int(rx * 0.14)
+        pad = int(rx * 0.3) + 8
+        W, H = 2 * rx + 2 * pad, 2 * ry + depth + 2 * pad
+        cx, cy = W // 2, pad + ry
+        s = pygame.Surface((W, H), pygame.SRCALPHA)
+        sp = pygame.Surface((W, H), pygame.SRCALPHA)
+        if t in ('cymbal', 'hihat'):  # резиновая тарелка
+            layers = [(cy + ry * 0.8, True)] if t == 'hihat' else []
+            layers.append((cy, False))
+            for y0, dark in layers:
+                radial(s, cx, y0, rx, ry, (58, 58, 64) if not dark else (40, 40, 44), (14, 14, 16), n=24, shift=(-0.1, -0.3))
+                grooves = pygame.Surface((W, H), pygame.SRCALPHA)
+                for k in (0.3, 0.45, 0.6, 0.75, 0.9):
+                    pygame.draw.ellipse(grooves, (90, 92, 100, 70), erect(cx, y0, rx * k, ry * k), max(1, rx // 120))
+                s.blit(grooves, (0, 0))
+                radial(s, cx, y0 - ry * 0.04, rx * 0.17, ry * 0.24, (70, 70, 76), (24, 24, 26), n=8, shift=(0, -0.3))
+                pygame.draw.circle(s, (180, 184, 192), (cx, y0 - ry * 0.06), max(3, rx // 30))
+            spot(sp, cx, cy, rx * 0.8, ry * 0.8)
+            return s, sp, (cx, cy), ry, ry + depth
+        if t == 'kick':  # пэд бочки на стойке, вид спереди
+            radial(s, cx, cy, rx, rx, (48, 48, 54), (12, 12, 14), shift=(0, 0))
+            self._mesh(s, cx, cy, rx * 0.82, rx * 0.82, W, H)
+            pygame.draw.circle(s, (70, 72, 78), (cx, cy), int(rx * 0.84), max(3, int(rx * 0.05)))
+            pygame.draw.circle(s, (36, 36, 40), (cx, cy), int(rx * 0.32))
+            pygame.draw.circle(s, (80, 82, 88), (cx, cy), int(rx * 0.32), max(2, rx // 50))
+            spot(sp, cx, cy, rx * 0.82, rx * 0.82)
+            return s, sp, (cx, cy), rx, rx
+        # пэд барабана: корпус-обод, сетка, винты
+        pygame.draw.ellipse(s, (14, 14, 16), erect(cx, cy + depth, rx, ry))
+        pygame.draw.rect(s, (14, 14, 16), pygame.Rect(cx - rx, cy, 2 * rx, depth))
+        for x in range(-rx, rx + 1, 2):
+            yy = ry * math.sqrt(max(0.0, 1 - (x / rx) ** 2))
+            pygame.draw.line(s, grad([(10, 10, 12), (40, 40, 46), (66, 66, 74), (40, 40, 46), (10, 10, 12)], (x + rx) / (2 * rx)),
+                             (cx + x, cy), (cx + x, cy + yy + depth), 2)
+        pygame.draw.ellipse(s, (54, 56, 62), erect(cx, cy, rx, ry))
+        self._mesh(s, cx, cy, rx * 0.86, ry * 0.86, W, H)
+        pygame.draw.ellipse(s, (74, 76, 84), erect(cx, cy, rx * 0.92, ry * 0.92), max(3, int(rx * 0.06)))
+        for i in range(8):
+            ang = i / 8 * 2 * math.pi
+            pygame.draw.circle(s, (150, 152, 160), (cx + math.cos(ang) * rx * 0.96, cy + math.sin(ang) * ry * 0.96), max(2, rx // 45))
+        if t == 'snare':  # у малого — тонкий цветной ободок зоны
+            pygame.draw.ellipse(s, skin['accent'], erect(cx, cy, rx * 0.86, ry * 0.86), max(2, rx // 70))
+        spot(sp, cx, cy, rx, ry)
+        return s, sp, (cx, cy), ry, ry + depth
+
+    @staticmethod
+    def _mesh(s, cx, cy, rx, ry, W, H):
+        """Сетчатый пластик: тёмная основа с мелкой сеткой."""
+        m = pygame.Surface((W, H), pygame.SRCALPHA)
+        radial(m, cx, cy, rx, ry, (40, 40, 44), (22, 22, 24), n=16)
+        step = max(4, int(rx / 14))
+        for k in range(-int(2 * rx), int(2 * rx), step):
+            pygame.draw.line(m, (58, 58, 64, 255), (cx + k - rx, cy - ry), (cx + k + rx, cy + ry), 1)
+            pygame.draw.line(m, (58, 58, 64, 255), (cx + k + rx, cy - ry), (cx + k - rx, cy + ry), 1)
+        mk = pygame.Surface((W, H), pygame.SRCALPHA)
+        pygame.draw.ellipse(mk, (255, 255, 255, 255), erect(cx, cy, rx, ry))
+        m.blit(mk, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+        s.blit(m, (0, 0))
 
     @staticmethod
     def _cymbal(s, skin, cx, cy, rx, ry, dark=False, china=False, bell=False):

@@ -22,7 +22,7 @@ import traceback
 import urllib.request
 
 APP_NAME = 'Воздушные барабаны'
-APP_VERSION = '0.6.0'
+APP_VERSION = '0.7.0'
 BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 MODEL_NAME = 'hand_landmarker.task'
 MODEL_URL = ('https://storage.googleapis.com/mediapipe-models/hand_landmarker/'
@@ -1271,28 +1271,36 @@ class App:
                 for a, b in conns:
                     pygame.draw.line(ov, (255, 255, 255, 70), (hnd[a][0] * W, hnd[a][1] * H), (hnd[b][0] * W, hnd[b][1] * H), 2)
             return
-        # «яркие пальцы»: неоновый скелет рук, цвет — как у палочки этой руки
+        # «яркие пальцы»: неоновый скелет рук, цвет — как у палочки этой руки.
+        # Свечение считается только в области вокруг рук и в уменьшенном размере — это дёшево.
         S = self.ui.S
-        if self._neon is None or self._neon.get_size() != st.size:
-            self._neon = pygame.Surface(st.size, pygame.SRCALPHA)
-        neon = self._neon
-        neon.fill((0, 0, 0, 0))
+        q = 3  # во сколько раз уменьшен слой свечения
+        pts_all = [(x * W, y * H) for hnd in hands for x, y in hnd]
+        m = S(40)
+        x0, y0 = max(0, min(p[0] for p in pts_all) - m), max(0, min(p[1] for p in pts_all) - m)
+        x1, y1 = min(W, max(p[0] for p in pts_all) + m), min(H, max(p[1] for p in pts_all) + m)
+        bw, bh = int(x1 - x0), int(y1 - y0)
+        if bw < 4 or bh < 4:
+            return
+        neon = pygame.Surface((max(2, bw // q), max(2, bh // q)), pygame.SRCALPHA)
         for hnd in hands:
             kx = sum(hnd[i][0] for i in (5, 9, 13, 17)) / 4
             ky = sum(hnd[i][1] for i in (5, 9, 13, 17)) / 4
             act = [s for s in self.engine.sticks if s.active]
             col = min(act, key=lambda s: (s.x - kx) ** 2 + (s.y - ky) ** 2).rgb if act else STICK_RGB[0]
             P = [(x * W, y * H) for x, y in hnd]
+            Pq = [((x - x0) / q, (y - y0) / q) for x, y in P]
             for a, b in conns:
-                pygame.draw.line(neon, col + (255,), P[a], P[b], max(6, S(12)))
+                pygame.draw.line(neon, col + (255,), Pq[a], Pq[b], max(2, S(12) // q))
             for i in (4, 8, 12, 16, 20):
-                pygame.draw.circle(neon, col + (255,), P[i], max(8, S(16)))
+                pygame.draw.circle(neon, col + (255,), Pq[i], max(3, S(16) // q))
             for a, b in conns:
                 pygame.draw.line(ov, kits.bright(col, 0.45) + (255,), P[a], P[b], max(2, S(4)))
             for i, pt in enumerate(P):
                 big = i in (4, 8, 12, 16, 20)
                 pygame.draw.circle(ov, (255, 255, 255, 255), pt, max(3, S(7 if big else 4)))
-        self.screen.blit(kits.soft_blur(neon, 6), st.topleft, special_flags=pygame.BLEND_RGBA_ADD)
+        glow = pygame.transform.smoothscale(kits.soft_blur(neon, 2), (bw, bh))
+        self.screen.blit(glow, (st.x + x0, st.y + y0), special_flags=pygame.BLEND_RGBA_ADD)
 
     def draw_label(self, p, st, skin):
         W, H = st.w, st.h
