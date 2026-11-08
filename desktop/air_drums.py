@@ -92,7 +92,8 @@ DEFAULTS = {
     'bright_fingers': False,
     'video': 62,            # яркость видео, %
     'camera': 0,
-    'cam_mode': None,       # подбирается автоматически при первом запуске
+    'cam_mode': None,       # режим, найденный подбором 60 к/с
+    'cam_fps60': False,     # подбирать режим 60 к/с (по желанию, меню → Вид)
     'audio_buffer': 256,    # меньше — меньше задержка; если звук трещит — поставьте 512
     'fullscreen': False,
     'shortcut_done': False,
@@ -375,28 +376,68 @@ class ColorTracker:
 
 # ============================================================ камера
 
-CAM_MODES = [  # сначала режимы 60 к/с, затем лучшее из 30 к/с
-    (1280, 720, 60), (960, 540, 60), (848, 480, 60), (640, 480, 60), (640, 360, 60),
-    (1280, 720, 30), (640, 480, 30),
-]
+CAM_NORMAL = (1280, 720, 60)   # так камера включалась в версии, которая у всех работала
+CAM_60 = [(1280, 720, 60), (640, 480, 60), (640, 360, 60)]
 
 
 class Camera(threading.Thread):
-    """Читает камеру в отдельном потоке. При первом запуске сама подбирает режим с наибольшей
-    реальной частотой кадров (встроенные камеры часто дают 60 к/с только в меньшем разрешении)."""
+    """Читает камеру в отдельном потоке.
 
-    def __init__(self, source, mode_hint=None):
+    Открывает камеру бережно: сначала обычный режим, при неудаче — настройки камеры по умолчанию,
+    другой способ подключения (DirectShow → Media Foundation) и другие камеры (0, 1, 2).
+    Подбор режима 60 к/с включается только по желанию (меню → Вид)."""
+
+    BACKENDS = ([('DirectShow', cv2.CAP_DSHOW), ('Media Foundation', cv2.CAP_MSMF), ('авто', cv2.CAP_ANY)]
+                if os.name == 'nt' else [('авто', cv2.CAP_ANY)])
+
+    def __init__(self, source, mode=None, probe=False, prev=None):
         super().__init__(daemon=True)
-        self.source, self.mode_hint = source, mode_hint
+        self.source = source
+        self.mode = tuple(mode) if mode and len(mode) == 3 else CAM_NORMAL
+        self.probe = probe
+        self.prev = prev
         self.cond = threading.Condition()
         self.frame, self.t, self.seq = None, 0.0, 0
         self.error = None
         self.alive = True
         self.info = ''
-        self.chosen = None          # (w, h, запрошенные к/с) — App сохранит в настройки
+        self.index = None
+        self.chosen = None          # режим, найденный подбором 60 к/с
         self.fps = 0.0              # реальная частота кадров камеры
         self.probing = False
+        self.opening = True
+        self.started = time.perf_counter()
         self.is_file = isinstance(source, str) and not source.isdigit()
+
+    @staticmethod
+    def _apply(cap, mode):
+        w, h, f = mode
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        cap.set(cv2.CAP_PROP_FPS, f)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    def _try(self, idx, be, mode):
+        """Открыть камеру и дождаться первого кадра. Возвращает (cap, причина неудачи)."""
+        try:
+            cap = cv2.VideoCapture(idx, be)
+        except Exception as e:
+            return None, repr(e)
+        if not cap.isOpened():
+            cap.release()
+            return None, 'не открылась'
+        if mode:
+            self._apply(cap, mode)
+        for _ in range(60):  # ~1,5 с на первый кадр
+            if not self.alive:
+                break
+            ok, fr = cap.read()
+            if ok and fr is not None and fr.size:
+                return cap, None
+            time.sleep(0.025)
+        cap.release()
+        return None, 'нет кадров'
 
     @staticmethod
     def _measure(cap, n=20):
@@ -409,61 +450,68 @@ class Camera(threading.Thread):
         d = stamps[-1] - stamps[5]
         return (len(stamps) - 6) / d if d > 0 else 0.0
 
-    @staticmethod
-    def _apply(cap, mode):
-        w, h, f = mode
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-        cap.set(cv2.CAP_PROP_FPS, f)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        return int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    def _configure(self, cap):
-        hint = tuple(self.mode_hint) if self.mode_hint else None
-        if hint and len(hint) == 3:  # режим, найденный в прошлый раз: быстро проверяем, что он всё ещё работает
-            self._apply(cap, hint)
-            if self._measure(cap, 14) >= hint[2] * 0.75:
-                self.chosen = hint
-                return
-        self.probing = True
-        best = None
-        for mode in CAM_MODES:
-            aw, ah = self._apply(cap, mode)
-            fps = self._measure(cap)
-            log(f'Камера: проба {mode[0]}×{mode[1]}@{mode[2]} → {aw}×{ah}, {fps:.0f} к/с')
-            if best is None or fps > best[1] + 5 or (abs(fps - best[1]) <= 5 and aw * ah > best[2]):
-                best = (mode, fps, aw * ah)
-            if fps >= 50:
-                break
-        self.probing = False
-        self.chosen = best[0]
-        self._apply(cap, self.chosen)
-
     def _open(self):
         if self.is_file:
             return cv2.VideoCapture(self.source)
         idx = int(self.source)
-        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if os.name == 'nt' else [cv2.CAP_ANY]
-        for be in backends:  # DirectShow на Windows открывает камеру за доли секунды
-            cap = cv2.VideoCapture(idx, be)
-            if cap.isOpened():
-                self._configure(cap)
-                return cap
-            cap.release()
+        for i in [idx] + [k for k in (0, 1, 2) if k != idx]:
+            for bname, be in self.BACKENDS:
+                for mode in (self.mode, None):  # сначала нужный режим, потом — как камера настроена сама
+                    if not self.alive:
+                        return None
+                    cap, why = self._try(i, be, mode)
+                    log(f'Камера {i}, {bname}, режим {mode or "по умолчанию"}: {"работает" if cap else why}')
+                    if cap:
+                        self.index, self.backend = i, be
+                        if self.probe and mode:
+                            cap = self._probe60(cap, i, be)
+                        return cap
         return None
+
+    def _probe60(self, cap, idx, be):
+        """Подбор режима с наибольшей реальной частотой кадров: каждый режим — с переоткрытием камеры."""
+        self.probing = True
+        best_mode, best_fps = self.mode, self._measure(cap)
+        log(f'Камера: {self.mode} → {best_fps:.0f} к/с')
+        for mode in CAM_60:
+            if best_fps >= 50 or not self.alive:
+                break
+            if mode == self.mode:
+                continue
+            cap.release()
+            cap, why = self._try(idx, be, mode)
+            fps = self._measure(cap) if cap else 0.0
+            log(f'Камера: проба {mode} → {why or f"{fps:.0f} к/с"}')
+            if cap:
+                cap.release()
+            if fps > best_fps + 5:
+                best_mode, best_fps = mode, fps
+            cap = None
+        if cap is None:
+            cap, why = self._try(idx, be, best_mode)
+            if cap is None:  # на всякий случай возвращаемся к обычному режиму
+                best_mode = self.mode
+                cap, why = self._try(idx, be, best_mode)
+        self.chosen = best_mode
+        self.probing = False
+        return cap
 
     def run(self):
         cap = None
         try:
+            if self.prev is not None:  # дождаться, пока прежний поток отпустит камеру
+                self.prev.alive = False
+                self.prev.join(timeout=3)
             cap = self._open()
+            self.opening = False
             if cap is None or not cap.isOpened():
-                self.error = ('Камера не найдена или занята другой программой (Zoom, Teams, браузер). '
-                              'Закройте их и запустите игру снова.')
+                if self.alive:
+                    self.error = ('Камера не включилась. Закройте программы, которые могут её занимать (Zoom, Teams, '
+                                  'браузер, другую копию игры), и нажмите «Перезапустить камеру» в меню → Вид.')
                 return
             file_fps = cap.get(cv2.CAP_PROP_FPS) or 30
             self.info = f'{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}×{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}'
-            log(f'Камера: {self.info}, режим {self.chosen}')
+            log(f'Камера: {self.info}, камера №{self.index}')
             period = 1 / (file_fps if 1 < file_fps < 240 else 30)
             next_t = time.perf_counter()
             fails, n, t_fps = 0, 0, time.perf_counter()
@@ -475,7 +523,8 @@ class Camera(threading.Thread):
                         continue
                     fails += 1
                     if fails > 100:
-                        self.error = 'Камера перестала отдавать кадры. Переподключите её и запустите игру снова.'
+                        self.error = ('Камера перестала отдавать кадры. Нажмите «Перезапустить камеру» в меню → Вид '
+                                      'или переподключите камеру.')
                         break
                     time.sleep(0.01)
                     continue
@@ -508,7 +557,6 @@ class Camera(threading.Thread):
     def latest(self):
         with self.cond:
             return self.seq, self.frame
-
 
 
 # ============================================================ движок: кадр → удары
@@ -660,8 +708,8 @@ class App:
         self._set_mode()
 
         self.cam_src = args.camera if args.camera is not None else str(self.s['camera'])
-        self.camera = Camera(self.cam_src, self.s['cam_mode'])
-        self.camera.start()
+        self.camera = None
+        self.restart_camera()
         self._last_seq, self._last_seq_t, self._restart_t = 0, time.perf_counter(), 0.0
         self.set_status('Включаю камеру…')
         self._engine_thread = threading.Thread(target=self._engine_loop, daemon=True)
@@ -903,12 +951,39 @@ class App:
                     nxt = now + 60 / self.s['bpm']
             time.sleep(min(0.002, max(0.0, nxt - time.perf_counter())))
 
+    def restart_camera(self, src=None):
+        """(Пере)запуск камеры: новый поток сам дождётся, пока прежний отпустит устройство."""
+        if src is not None:
+            self.cam_src = str(src)
+        fps60 = self.s['cam_fps60']
+        mode = self.s['cam_mode'] if fps60 else None
+        self.camera = Camera(self.cam_src, mode, probe=fps60 and not self.s['cam_mode'], prev=self.camera)
+        self.camera.start()
+        self._last_seq, self._last_seq_t, self._restart_t = 0, time.perf_counter(), time.perf_counter()
+        self.frame_seq = -1
+        self.frame_surf = None
+
+    def set_fps60(self, on):
+        self.s['cam_fps60'] = bool(on)
+        self.s['cam_mode'] = None
+        self.save()
+        self.restart_camera()
+
     def watch_camera(self):
         """Запоминает найденный режим камеры и перезапускает камеру, если она перестала присылать кадры."""
         cam, now = self.camera, time.perf_counter()
-        if cam.chosen and not cam.is_file and self.s.get('cam_mode') != list(cam.chosen):
+        if cam.chosen and not cam.is_file and self.s['cam_fps60'] and self.s.get('cam_mode') != list(cam.chosen):
             self.s['cam_mode'] = list(cam.chosen)
             self.save()
+        if cam.seq == 0 and not cam.is_file and not cam.error and now - cam.started > (40 if cam.opening else 15):
+            # камера так и не прислала ни кадра (например, зависла при подборе 60 к/с) — возвращаемся к безопасному режиму
+            log('Камера не прислала ни одного кадра за 15 с')
+            if self.s['cam_fps60']:
+                self.s['cam_fps60'], self.s['cam_mode'] = False, None
+                self.save()
+            cam.error = ('Камера не отвечает. Закройте программы, которые могут её занимать, и перезапустите игру. '
+                         'Режим 60 к/с выключен.')
+            return
         if cam.seq != self._last_seq:
             self._last_seq, self._last_seq_t = cam.seq, now
         elif (cam.seq > 0 and not cam.is_file and not cam.error and now - self._last_seq_t > 3
@@ -918,8 +993,7 @@ class App:
             cam.alive = False
             self._restart_t = self._last_seq_t = now
             self._last_seq = 0
-            self.camera = Camera(self.cam_src, self.s['cam_mode'])
-            self.camera.start()
+            self.restart_camera()
 
     # ---------- геометрия сцены
     def stage(self):
@@ -1262,7 +1336,7 @@ class App:
             if self.camera.error:
                 msg, err = self.camera.error, True
             elif self.camera.seq == 0:
-                msg = 'Подбираю режим камеры для 60 к/с (только при первом запуске)…' if self.camera.probing \
+                msg = 'Подбираю режим камеры для 60 к/с…' if self.camera.probing \
                     else 'Включаю камеру…'
             elif self.editor.active:
                 msg = ''

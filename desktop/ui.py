@@ -619,6 +619,39 @@ class Menu:
         app = self.app
         s = app.s
         y = self.header(surf, ui, area, y, 'Вид и управление')
+
+        def toggle_row(title, hint, value, y):
+            ui.text(surf, title, 16, C['text'], (area.x, y), bold=True)
+            nv = ui.toggle(surf, pygame.Rect(area.right - S(56), y - S(2), S(52), S(28)), value)
+            y2 = ui.para(surf, hint, 13, C['hint'], area.x, y + S(26), area.w - S(80))
+            return nv, y2 + S(22)
+
+        # камера
+        cam = app.camera
+        ui.text(surf, 'Камера', 16, C['text'], (area.x, y), bold=True)
+        state = (f'{cam.info} · {cam.fps:.0f} к/с' if cam.seq else 'не работает' if cam.error
+                 else 'подбираю 60 к/с…' if cam.probing else 'включается…')
+        ui.text(surf, state, 14, C['acc'] if cam.seq else C['danger'] if cam.error else C['hint'], (area.right, y), 'topright', True)
+        y += S(30)
+        idx = int(app.cam_src) if str(app.cam_src).isdigit() else 0
+        wide = area.w >= S(620)
+        seg = pygame.Rect(area.x, y, S(330) if wide else area.w, S(44))
+        ni = ui.segmented(surf, seg, ['Камера 1', 'Камера 2', 'Камера 3'], min(idx, 2))
+        if ni != idx:
+            app.s['camera'] = ni
+            app.save()
+            app.restart_camera(ni)
+        rb = pygame.Rect(seg.right + S(14), y, min(S(260), area.right - seg.right - S(14)), S(44)) if wide \
+            else pygame.Rect(area.x, seg.bottom + S(10), area.w, S(44))
+        if ui.button(surf, rb, 'Перезапустить камеру', icon='reset', size=14):
+            app.restart_camera()
+        y = rb.bottom + S(14)
+        if cam.error:
+            y = ui.para(surf, cam.error, 13, C['danger'], area.x, y, area.w) + S(10)
+        v, y = toggle_row('Пробовать 60 к/с', 'Игра подберёт режим, в котором камера даёт 60 кадров в секунду (обычно '
+                          'в меньшем разрешении). Если после этого камера не включается — выключите.', app.s['cam_fps60'], y)
+        if v != app.s['cam_fps60']:
+            app.set_fps60(v)
         ui.text(surf, 'Стиль барабанов', 16, C['text'], (area.x, y), bold=True)
         y += S(30)
         x = area.x
@@ -632,12 +665,6 @@ class Menu:
                 app.set_skin(key)
             x += w + S(8)
         y += S(64)
-
-        def toggle_row(title, hint, value, y):
-            ui.text(surf, title, 16, C['text'], (area.x, y), bold=True)
-            nv = ui.toggle(surf, pygame.Rect(area.right - S(56), y - S(2), S(52), S(28)), value)
-            y2 = ui.para(surf, hint, 13, C['hint'], area.x, y + S(26), area.w - S(80))
-            return nv, y2 + S(22)
 
         v, y = toggle_row('Яркие пальцы', 'Неоновый скелет рук поверх видео: видно, как нейросеть видит ваши руки и пальцы.',
                           s['bright_fingers'], y)
