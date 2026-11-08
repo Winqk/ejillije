@@ -42,6 +42,9 @@ jobs:
           test -d dist/AirDrums/_internal/samples/rusty/kick
 
       - name: Лицензии рядом с игрой
+        env:
+          PYTHONUTF8: '1'   # в текстах лицензий есть не-латинские буквы, а консоль Windows — в cp1252
+          PYTHONIOENCODING: utf-8
         run: |
           cp -r LICENSES dist/AirDrums/LICENSES
           cp "$(python -c 'import os, sys; print(os.path.join(sys.base_prefix, "LICENSE.txt"))')" dist/AirDrums/LICENSES/Python-PSF.txt
