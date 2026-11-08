@@ -1,0 +1,79 @@
+{
+ "rusty": {
+  "name": "Big Rusty Drums",
+  "author": "Karoryfer Samples",
+  "license": "CC0-1.0",
+  "url": "https://github.com/sfzinstruments/karoryfer.big-rusty-drums",
+  "instruments": [
+   "china",
+   "crash",
+   "floor",
+   "hihat",
+   "hihat_open",
+   "kick",
+   "ride",
+   "ride_bell",
+   "rim",
+   "snare",
+   "tom_hi",
+   "tom_lo",
+   "tom_mid"
+  ]
+ },
+ "virtuosity": {
+  "name": "Virtuosity Drums",
+  "author": "Versilian Studios, Karoryfer Samples",
+  "license": "CC0-1.0",
+  "url": "https://github.com/sfzinstruments/virtuosity_drums",
+  "instruments": [
+   "cowbell",
+   "crash",
+   "floor",
+   "hihat",
+   "hihat_open",
+   "kick",
+   "kick_jazz",
+   "ride",
+   "ride_bell",
+   "ride_jazz",
+   "rim",
+   "snare",
+   "splash",
+   "tom_hi",
+   "tom_lo",
+   "tom_mid"
+  ]
+ },
+ "frankensnare": {
+  "name": "Frankensnare",
+  "author": "Karoryfer Samples",
+  "license": "CC0-1.0",
+  "url": "https://github.com/sfzinstruments/karoryfer.frankensnare",
+  "instruments": [
+   "snare_brush"
+  ]
+ },
+ "drs": {
+  "name": "DRSKit (DrumGizmo)",
+  "author": "Lars Muldjord, Bent Bisballe Nyeng; SFZ: kinwie",
+  "license": "CC-BY-4.0",
+  "url": "https://github.com/sfzinstruments/DrumGizmo.DRSKit",
+  "instruments": [
+   "crash",
+   "crash_dark",
+   "floor",
+   "hihat",
+   "hihat_open",
+   "kick",
+   "kick_tight",
+   "ride",
+   "ride_bell",
+   "rim",
+   "snare",
+   "snare_tight",
+   "tom_hi",
+   "tom_lo",
+   "tom_mid"
+  ]
+ }
+}

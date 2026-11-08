@@ -451,6 +451,12 @@ class Menu:
             pygame.draw.rect(surf, C['card_hi'] if hov else C['card'], r, border_radius=S(16))
             pv = self._rounded_preview(ui, pr['skin'], cw - S(16), prev_h)
             surf.blit(pv, (r.x + S(8), r.y + S(8)))
+            tag = 'живые записи' if pr.get('banks') else 'синтез'
+            tw = ui.tsurf(tag, 12, (240, 244, 250), True).get_width() + S(18)
+            tr = pygame.Rect(r.x + S(16), r.y + S(16), tw, S(24))
+            pygame.draw.rect(surf, (10, 13, 19), tr, border_radius=tr.h // 2)
+            pygame.draw.rect(surf, C['gold'] if pr.get('banks') else C['line'], tr, 1, border_radius=tr.h // 2)
+            ui.text(surf, tag, 12, (240, 244, 250), tr.center, 'center', True)
             ui.text(surf, pr['name'], 18, C['text'], (r.x + S(16), r.y + prev_h + S(18)), bold=True)
             yy = r.y + prev_h + S(44)
             for ln in ui.wrap(pr['desc'], 13, cw - S(32))[:2]:
@@ -688,6 +694,13 @@ class Menu:
         v, y = toggle_row('Во весь экран', 'То же самое — клавиша F11.', app.fullscreen, y)
         if v != app.fullscreen:
             app.toggle_fullscreen()
+        if app.credits:
+            ui.text(surf, 'Записи барабанов', 16, C['text'], (area.x, y), bold=True)
+            y += S(28)
+            for c in app.credits.values():
+                y = ui.para(surf, f'{c["name"]} — {c["author"]}, лицензия {c["license"]}', 13, C['hint'],
+                            area.x, y, area.w) + S(4)
+            y += S(18)
         r = pygame.Rect(area.x, y, S(200), S(44))
         if ui.button(surf, r, 'Выйти из игры', 'danger', icon='exit'):
             app.alive = False

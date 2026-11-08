@@ -124,6 +124,14 @@ def load_settings() -> dict:
     return s
 
 
+def load_credits() -> dict:
+    try:
+        with open(os.path.join(BASE_DIR, 'samples', 'credits.json'), encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def save_settings(s: dict) -> None:
     try:
         tmp = SETTINGS_PATH + '.tmp'
@@ -674,12 +682,15 @@ class App:
         self.ui = ui.UI(self.font)
         self.menu = ui.Menu(self)
         self.editor = ui.Editor(self)
-        self.audio = sounds.Audio(self.s['audio_buffer'], self.s['volume'] / 100, log) if not args.no_audio else None
+        self.audio = sounds.Audio(self.s['audio_buffer'], self.s['volume'] / 100, log,
+                                  samples_dir=os.path.join(BASE_DIR, 'samples')) if not args.no_audio else None
+        self.credits = load_credits()
         pads = self._kit_pads(self.s['preset'])
         self.engine = Engine(self.s, pads, self.audio.play if self.audio else None)
         self.engine.style = self.style
         if self.audio:
             self.audio.prioritize([p['inst'] for p in pads])
+            self.audio.set_banks(PRESET_BY_ID[self.s['preset']].get('banks', []))
         self.metro_on = False
         self.metro_flash = 0.0
         self.metro_beat_i = 0
@@ -779,6 +790,8 @@ class App:
             return
         self.s['preset'] = pid
         self.s['skin'] = None          # у каждого жанра свой стиль
+        if self.audio:
+            self.audio.set_banks(PRESET_BY_ID[pid].get('banks', []))
         self._set_pads(self._kit_pads(pid))
         self.editor.sel = None
         self.set_status(f'Жанр: {PRESET_BY_ID[pid]["name"]}', 1.5)
@@ -1342,6 +1355,8 @@ class App:
                 msg = ''
             elif self.s['mode'] == 'color' and not self.s['colors']:
                 msg = 'Кликните по яркому кончику палочки на видео — я запомню его цвет.'
+            elif self.audio and not self.audio.banks_ready():
+                msg = 'Загружаю записи барабанов…'
             elif self.s['mode'] == 'hands' and self.model_state == 'ready' and not e.view_hands:
                 msg = 'Покажите руки в кадре.'
         if msg:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import collections
 import math
+import os
 import random
+import re
 import threading
 import time
 
@@ -254,8 +256,13 @@ SELECTABLE = [k for _, ks in PICKER_GROUPS for k in ks]
 class Audio:
     """Микшер pygame + фоновый синтез: сначала звуки текущего пресета, потом остальные."""
 
-    def __init__(self, buffer: int, volume: float, log=print, variants: int = 2):
+    def __init__(self, buffer: int, volume: float, log=print, variants: int = 2, samples_dir: str | None = None):
         self.ok = False
+        self.samples_dir = samples_dir
+        self.banks: dict[str, dict] = {}      # банк -> {инструмент: [[Sound…] по градациям]}
+        self.bank_state: dict[str, str] = {}  # банк -> loading | ready | missing
+        self.active_banks: list[str] = []
+        self.last_rr: dict = {}
         self.volume = volume
         self.log = log
         self.variants = variants
@@ -327,22 +334,96 @@ class Audio:
             return
         key = OPEN_HATS.get(inst, inst) if open_ else inst
         with self.lock:
-            snds = self.sounds.get(key)
-            if not snds:
-                if key not in self.sounds:
-                    self.prioritize([key])
-                return
+            picked = self._from_bank(key, vel)
+            if picked:
+                snd, vol = picked
+            else:
+                snds = self.sounds.get(key)
+                if not snds:
+                    if key not in self.sounds:
+                        self.prioritize([key])
+                    return
+                snd, vol = random.choice(snds), _clamp(vel, 0.05, 1.0)
             if key in HATS and self.open_ch is not None:  # любой удар по хай-хэту глушит открытый
                 if self.open_ch.get_busy() and self.open_ch.get_sound() in self.open_set:
                     self.open_ch.fadeout(40)
                 self.open_ch = None
             ch = pygame.mixer.find_channel(True)
-            vol = _clamp(vel, 0.05, 1.0) * self.volume ** 1.5
+            vol *= self.volume ** 1.5
             ch.set_volume(vol)
-            ch.play(random.choice(snds))
+            ch.play(snd)
             ch.set_volume(vol)
             if key in ('hihat_open', 'hat808_open'):
                 self.open_ch = ch
+
+    # ---------- записи настоящих барабанов
+    def set_banks(self, names):
+        """Банки текущего жанра (порядок — приоритет). Лишние выгружаются, нужные грузятся в фоне."""
+        names = [n for n in names if n]
+        with self.lock:
+            self.active_banks = names
+            for old in [n for n in self.banks if n not in names]:
+                self.banks.pop(old, None)
+                self.bank_state.pop(old, None)
+        for n in names:
+            if n not in self.bank_state:
+                self.bank_state[n] = 'loading'
+                threading.Thread(target=self._load_bank, args=(n,), daemon=True).start()
+
+    def banks_ready(self):
+        return all(self.bank_state.get(n) in ('ready', 'missing') for n in self.active_banks)
+
+    def bank_insts(self):
+        out = set()
+        for n in self.active_banks:
+            out |= set(self.banks.get(n, {}))
+        return out
+
+    def _load_bank(self, name):
+        d = os.path.join(self.samples_dir or '', name)
+        if not self.ok or not os.path.isdir(d):
+            self.bank_state[name] = 'missing'
+            return
+        t0 = time.perf_counter()
+        bank = {}
+        self.banks[name] = bank
+        try:
+            for inst in sorted(os.listdir(d)):
+                if name not in self.active_banks:  # жанр успели сменить
+                    return
+                layers = {}
+                for fn in sorted(os.listdir(os.path.join(d, inst))):
+                    m = re.fullmatch(r'v(\d+)_r(\d+)\.ogg', fn)
+                    if m:
+                        with open(os.path.join(d, inst, fn), 'rb') as f:  # через файл — без проблем с кириллицей в пути
+                            layers.setdefault(int(m.group(1)), []).append(pygame.mixer.Sound(file=f))
+                if layers:
+                    with self.lock:
+                        bank[inst] = [layers[k] for k in sorted(layers)]
+                        if inst in ('hihat_open', 'hat808_open'):
+                            for lv in bank[inst]:
+                                self.open_set.update(lv)
+            self.bank_state[name] = 'ready'
+            self.log(f'Записи «{name}» загружены: {len(bank)} инструментов за {time.perf_counter() - t0:.1f} с')
+        except Exception as e:
+            self.bank_state[name] = 'missing'
+            self.log(f'Не удалось загрузить записи {name}: {e!r}')
+
+    def _from_bank(self, key, vel):
+        """Сила взмаха выбирает градацию удара; вариант не повторяется два раза подряд."""
+        for n in self.active_banks:
+            layers = self.banks.get(n, {}).get(key)
+            if not layers:
+                continue
+            x = _clamp((vel - 0.3) / 0.7, 0.0, 1.0)
+            li = int(round(x * (len(layers) - 1)))
+            rr = layers[li]
+            last = self.last_rr.get((n, key, li), -1)
+            choices = [i for i in range(len(rr)) if i != last] or [0]
+            i = random.choice(choices)
+            self.last_rr[(n, key, li)] = i
+            return rr[i], 0.86 + 0.14 * x
+        return None
 
     def click(self, accent: bool):
         if not self.ok:
