@@ -9,7 +9,8 @@
 3. Первый запуск занимает 2–5 минут: при необходимости ставится Python 3.12, затем камера, нейросеть и звук. Нужен интернет.
 4. На рабочем столе появится ярлык **«Воздушные барабаны»** — дальше запускайте игру им.
 
-Есть и готовая сборка `AirDrums.exe` без Python: её собирает GitHub Actions (`.github/workflows/desktop-windows.yml`), архив лежит во вкладке Actions → Artifacts.
+Есть и готовая сборка `AirDrums.exe` без Python: **[скачать последнюю версию](https://github.com/Winqk/ejillije/releases/latest/download/AirDrums-Windows.zip)**
+(страница [Releases](https://github.com/Winqk/ejillije/releases), вход в GitHub не нужен). Её собирает GitHub Actions (`.github/workflows/desktop-windows.yml`).
 
 На macOS и Linux: `python3 -m pip install -r requirements.txt && python3 air_drums.py`.
 
