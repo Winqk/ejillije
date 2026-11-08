@@ -29,7 +29,7 @@ jobs:
       - name: Зависимости
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller pip-licenses
 
       - name: Модель рук MediaPipe
         run: curl -fsSL -o hand_landmarker.task https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task
@@ -40,6 +40,17 @@ jobs:
           pyinstaller --noconfirm --windowed --name AirDrums --icon air_drums.ico \
             --add-data "hand_landmarker.task;." --add-data "samples;samples" --collect-all mediapipe air_drums.py
           test -d dist/AirDrums/_internal/samples/rusty/kick
+
+      - name: Лицензии рядом с игрой
+        run: |
+          cp -r LICENSES dist/AirDrums/LICENSES
+          cp "$(python -c 'import os, sys; print(os.path.join(sys.base_prefix, "LICENSE.txt"))')" dist/AirDrums/LICENSES/Python-PSF.txt
+          pip-licenses --from=mixed --with-license-file --with-notice-file --no-license-path --format=plain-vertical \
+            --ignore-packages pip-licenses prettytable wcwidth pyinstaller pyinstaller-hooks-contrib altgraph pefile \
+              pywin32-ctypes setuptools pip \
+            > dist/AirDrums/LICENSES/python-packages.txt
+          test -s dist/AirDrums/LICENSES/python-packages.txt
+          ls dist/AirDrums/LICENSES
 
       - name: Проверка запуска собранной программы
         run: |

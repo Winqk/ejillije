@@ -311,6 +311,14 @@ def draw_icon(surf, name, center, size, color, w=2):
         L((-0.1, 0), (0.9, 0))
         L((0.55, -0.35), (0.9, 0))
         L((0.55, 0.35), (0.9, 0))
+    elif name == 'info':
+        pygame.draw.circle(surf, color, (cx, cy), int(h * 0.9), w)
+        L((0, -0.05), (0, 0.5))
+        pygame.draw.circle(surf, color, (cx, cy - h * 0.38), max(1, w))
+    elif name == 'folder':
+        pygame.draw.lines(surf, color, True, [(cx - h * 0.85, cy - h * 0.55), (cx - h * 0.3, cy - h * 0.55),
+                                               (cx - h * 0.15, cy - h * 0.35), (cx + h * 0.85, cy - h * 0.35),
+                                               (cx + h * 0.85, cy + h * 0.65), (cx - h * 0.85, cy + h * 0.65)], w)
     elif name == 'metro':
         pygame.draw.polygon(surf, color, [(cx - h * 0.55, cy + h * 0.85), (cx + h * 0.55, cy + h * 0.85), (cx + h * 0.2, cy - h * 0.85),
                                           (cx - h * 0.2, cy - h * 0.85)], w)
@@ -321,7 +329,7 @@ def draw_icon(surf, name, center, size, color, w=2):
 
 class Menu:
     TABS = [('presets', 'Пресеты', 'presets'), ('drums', 'Барабаны', 'drums'),
-            ('sound', 'Звук и ритм', 'sound'), ('view', 'Вид', 'view')]
+            ('sound', 'Звук и ритм', 'sound'), ('view', 'Вид', 'view'), ('about', 'Об игре', 'info')]
 
     def __init__(self, app):
         self.app = app
@@ -694,16 +702,47 @@ class Menu:
         v, y = toggle_row('Во весь экран', 'То же самое — клавиша F11.', app.fullscreen, y)
         if v != app.fullscreen:
             app.toggle_fullscreen()
-        if app.credits:
-            ui.text(surf, 'Записи барабанов', 16, C['text'], (area.x, y), bold=True)
-            y += S(28)
-            for c in app.credits.values():
-                y = ui.para(surf, f'{c["name"]} — {c["author"]}, лицензия {c["license"]}', 13, C['hint'],
-                            area.x, y, area.w) + S(4)
-            y += S(18)
         r = pygame.Rect(area.x, y, S(200), S(44))
         if ui.button(surf, r, 'Выйти из игры', 'danger', icon='exit'):
             app.alive = False
+        return r.bottom + S(10)
+
+
+    def tab_about(self, surf, ui, area, y):
+        S = ui.S
+        app = self.app
+        y = self.header(surf, ui, area, y, 'Об игре', f'Воздушные барабаны · версия {app.version}')
+        y = ui.para(surf, 'Играйте на барабанах по воздуху: камера и нейросеть превращают взмахи палочками или '
+                          'карандашами в звук настоящей ударной установки. Игра бесплатная.', 14, C['text'],
+                    area.x, y, area.w) + S(16)
+        card = pygame.Rect(area.x, y, area.w, S(76))
+        pygame.draw.rect(surf, C['card'], card, border_radius=S(14))
+        draw_icon(surf, 'view', (card.x + S(30), card.centery), S(20), C['acc'], max(2, S(2)))
+        ui.text(surf, 'Приватность', 15, C['text'], (card.x + S(56), card.y + S(14)), bold=True)
+        ui.para(surf, 'Видео с камеры обрабатывается только на вашем компьютере и никуда не отправляется.',
+                13, C['hint'], card.x + S(56), card.y + S(38), card.w - S(72))
+        y = card.bottom + S(24)
+        ui.text(surf, 'Лицензии', 16, C['text'], (area.x, y), bold=True)
+        y += S(28)
+        for name, lic in (('Нейросеть рук MediaPipe и модель рук (Google)', 'Apache 2.0'),
+                          ('OpenCV — работа с камерой', 'Apache 2.0'),
+                          ('pygame-ce, SDL2 и аудиокодеки — окно и звук', 'LGPL 2.1 и др.'),
+                          ('Python, NumPy и другие библиотеки', 'PSF, BSD, MIT…')):
+            ui.text(surf, name, 13, C['hint'], (area.x, y))
+            ui.text(surf, lic, 13, C['text'], (area.right, y), 'topright', True)
+            y += S(22)
+        y += S(6)
+        if app.credits:
+            ui.text(surf, 'Записи барабанов', 16, C['text'], (area.x, y + S(8)), bold=True)
+            y += S(36)
+            for c in app.credits.values():
+                ui.text(surf, f'{c["name"]} — {c["author"]}', 13, C['hint'], (area.x, y))
+                ui.text(surf, c['license'], 13, C['text'], (area.right, y), 'topright', True)
+                y += S(22)
+            y += S(6)
+        r = pygame.Rect(area.x, y + S(10), S(300), S(44))
+        if ui.button(surf, r, 'Открыть папку с лицензиями', icon='folder', size=14):
+            app.open_licenses()
         return r.bottom + S(10)
 
 

@@ -22,6 +22,7 @@ import traceback
 import urllib.request
 
 APP_NAME = 'Воздушные барабаны'
+APP_VERSION = '0.6.0'
 BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 MODEL_NAME = 'hand_landmarker.task'
 MODEL_URL = ('https://storage.googleapis.com/mediapipe-models/hand_landmarker/'
@@ -841,6 +842,27 @@ class App:
         if len(self.engine.pads) > 1:
             self._set_pads([p for p in self.engine.pads if p['uid'] != uid])
             self.save_kit()
+
+    version = APP_VERSION
+
+    @staticmethod
+    def licenses_dir():
+        base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base, 'LICENSES')
+
+    def open_licenses(self):
+        d = self.licenses_dir()
+        if not os.path.isdir(d):
+            self.set_status('Папка с лицензиями не найдена: ' + d, 4, True)
+            return
+        try:
+            if os.name == 'nt':
+                os.startfile(d)  # noqa: S606 — открыть папку в Проводнике
+            else:
+                import subprocess
+                subprocess.Popen(['xdg-open' if sys.platform.startswith('linux') else 'open', d])
+        except Exception as e:
+            self.set_status(f'Не удалось открыть папку: {e}', 4, True)
 
     def audio_preview(self, inst):
         if self.audio:
